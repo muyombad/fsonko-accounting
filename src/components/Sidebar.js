@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import "./Sidebar.css";
+import { signOut } from "firebase/auth";
+import { auth } from "../firebaseConfig";
+import { useNavigate } from "react-router-dom";
 
 const Sidebar = () => {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/login");
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -47,6 +55,7 @@ const Sidebar = () => {
           <li><Link to="/invoices">🧾 {isOpen && "Invoices"}</Link></li>
           <li><Link to="/reports">📊 {isOpen && "Reports"}</Link></li>
           <li><Link to="/settings">⚙️ {isOpen && "Settings"}</Link></li>
+          <li onClick={handleLogout} className="logout-btn">🚪{isOpen && "Logout"}</li>
         </ul>
       </div>
     </>

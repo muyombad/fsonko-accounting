@@ -1,5 +1,7 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import Sidebar from "./components/Sidebar";
 import DashboardHome from "./pages/DashboardHome";
 import Transactions from "./pages/Transactions";
@@ -10,6 +12,7 @@ import Ledgers from "./pages/Ledgers";
 import Invoices from "./pages/Invoices";
 import Inventory from "./pages/Inventory";
 import BankCash from "./pages/BankCash";
+import PrivateRoute from "./components/PrivateRoute";
 import "./App.css";
 
 function App() {
@@ -19,15 +22,18 @@ function App() {
         <Sidebar />
         <div className="main-content">
           <Routes>
-            <Route path="/" element={<DashboardHome />} />
-            <Route path="/transactions" element={<Transactions />} />
-            <Route path="/ledgers" element={<Ledgers />} />
-            <Route path="/clients" element={<Clients />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/bankcash" element={<BankCash />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/invoices" element={<Invoices />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+
+            <Route path="/" element={<PrivateRoute><DashboardHome /></PrivateRoute>} />
+            <Route path="/transactions" element={<PrivateRoute><Transactions /></PrivateRoute>} />
+            <Route path="/ledgers" element={<PrivateRoute><Ledgers /></PrivateRoute>} />
+            <Route path="/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
+            <Route path="/inventory" element={<PrivateRoute><Inventory /></PrivateRoute>} />
+            <Route path="/bankcash" element={<PrivateRoute><BankCash /></PrivateRoute>} />
+            <Route path="/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
+            <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+            <Route path="/invoices" element={<PrivateRoute><Invoices /></PrivateRoute>} />
           </Routes>
         </div>
       </div>
