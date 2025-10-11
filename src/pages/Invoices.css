@@ -1,0 +1,43 @@
+.invoices-page {
+  padding: 20px;
+}
+
+.invoice-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.invoice-form input {
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+.invoice-form button {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.invoice-form button:hover {
+  background: #0056b3;
+}
+
+.invoice-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.invoice-table th,
+.invoice-table td {
+  padding: 10px;
+  border: 1px solid #ddd;
+}
+
+.invoice-table th {
+  background: #f4f4f4;
+}

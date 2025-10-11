@@ -1,0 +1,101 @@
+.sidebar {
+  background-color: #20232a;
+  color: white;
+  width: 230px;
+  transition: all 0.3s ease-in-out;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar.closed {
+  width: 70px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #0d6efd;
+  padding: 25px 2px;
+}
+
+.toggle-btn {
+  background-color: white;
+  color: #0d6efd;
+  border: none;
+  font-size: 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+
+.sidebar ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar li {
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  transition: background 0.3s;
+}
+
+.sidebar li:hover {
+  background-color: #282c34;
+}
+
+.sidebar a {
+  color: white;
+  text-decoration: none;
+  font-size: 16px;
+}
+
+.sidebar.closed a {
+  text-align: center;
+  font-size: 18px;
+}
+
+/* ===== Mobile styling ===== */
+.mobile-toggle {
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  background-color: #0d6efd;
+  color: white;
+  border: none;
+  font-size: 20px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 1001;
+}
+
+/* When sidebar is on mobile */
+.sidebar.mobile {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  transform: translateX(-100%);
+  z-index: 1000;
+}
+
+.sidebar.mobile.open {
+  transform: translateX(0);
+}
+
+/* Add overlay background on mobile */
+.sidebar.mobile.open::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 230px;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(2px);
+}

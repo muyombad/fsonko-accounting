@@ -1,0 +1,149 @@
+.bankcash-page {
+  padding: 20px;
+}
+
+.bankcash-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.bankcash-form input,
+.bankcash-form select {
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  min-width: 150px;
+}
+
+.bankcash-form button {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.bankcash-form button:hover {
+  background: #0056b3;
+}
+
+.balances {
+  margin-bottom: 15px;
+}
+
+.bankcash-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bankcash-table th,
+.bankcash-table td {
+  padding: 10px;
+  border: 1px solid #ddd;
+}
+
+.bankcash-table th {
+  background: #f4f4f4;
+}
+
+
+.add-bank-section {
+  margin-bottom: 20px;
+}
+
+.add-bank-form {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.add-bank-form input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+.add-bank-form button {
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.add-bank-form button:hover {
+  background: #1e7e34;
+}
+
+
+.chart-section {
+  margin-top: 30px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pdf-btn {
+  margin-top: 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pdf-btn:hover {
+  background-color: #0056b3;
+}
+
+.report-section {
+  text-align: right;
+  margin-top: 10px;
+}
+
+.bank-cash-page {
+  padding: 20px;
+}
+
+.transaction-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.balances {
+  margin: 20px 0;
+}
+
+.chart-section {
+  margin-top: 30px;
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 10px;
+}
+
+.pdf-section button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+.pdf-section button:hover {
+  background-color: #0056b3;
+}
+
+
+
+
