@@ -1,14 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Container, Row, Col, Card, Form, Button, Image } from "react-bootstrap";
+import { db } from "../firebaseConfig";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export default function Settings() {
   const [companyData, setCompanyData] = useState({
-    name: "F-Sonko Ltd",
-    email: "info@fsonko.com",
-    phone: "+256700000000",
-    address: "Kyengera, Uganda",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
     logo: "",
   });
+
+  // 🔹 Fetch saved settings from Firestore
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, "settings", "company"));
+        if (settingsDoc.exists()) {
+          setCompanyData(settingsDoc.data());
+        }
+      } catch (error) {
+        console.error("Error loading settings:", error);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -26,10 +43,16 @@ export default function Settings() {
     }
   };
 
-  const handleSubmit = (e) => {
+  // 🔹 Save or update settings in Firestore
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    alert("✅ Settings saved successfully!");
-    console.log("Saved Data:", companyData);
+    try {
+      await setDoc(doc(db, "settings", "company"), companyData);
+      alert("✅ Settings saved successfully!");
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      alert("❌ Failed to save settings. Check console for details.");
+    }
   };
 
   return (

@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./Invoices.css";
+import { db } from "../firebaseConfig";
+import { collection, addDoc, getDocs, deleteDoc, doc } from "firebase/firestore";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -9,15 +11,70 @@ const Invoices = () => {
     amount: "",
     date: "",
   });
+  const [loading, setLoading] = useState(true);
 
+  const invoicesCollection = collection(db, "invoices");
+
+  // 🔹 Fetch invoices from Firestore
+  const fetchInvoices = async () => {
+    setLoading(true);
+    try {
+      const snapshot = await getDocs(invoicesCollection);
+      const invoiceList = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setInvoices(invoiceList);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchInvoices();
+  }, []);
+
+  // 🔹 Handle form input change
   const handleChange = (e) => {
     setNewInvoice({ ...newInvoice, [e.target.name]: e.target.value });
   };
 
-  const addInvoice = (e) => {
+  // 🔹 Add invoice to Firestore
+  const addInvoice = async (e) => {
     e.preventDefault();
-    setInvoices([...invoices, { ...newInvoice, id: Date.now() }]);
-    setNewInvoice({ client: "", transaction: "", amount: "", date: "" });
+    const { client, transaction, amount, date } = newInvoice;
+    if (!client || !transaction || !amount || !date) return;
+
+    const invoiceData = {
+      client,
+      transaction,
+      amount: parseFloat(amount),
+      date,
+    };
+
+    try {
+      await addDoc(invoicesCollection, invoiceData);
+      await fetchInvoices(); // refresh table
+      setNewInvoice({ client: "", transaction: "", amount: "", date: "" });
+      alert("✅ Invoice added successfully!");
+    } catch (error) {
+      console.error("Error adding invoice:", error);
+      alert("❌ Failed to add invoice!");
+    }
+  };
+
+  // 🔹 Delete invoice
+  const deleteInvoice = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+    try {
+      await deleteDoc(doc(db, "invoices", id));
+      await fetchInvoices();
+      alert("🗑️ Invoice deleted!");
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      alert("❌ Failed to delete invoice!");
+    }
   };
 
   return (
@@ -59,26 +116,41 @@ const Invoices = () => {
         <button type="submit">Add Invoice</button>
       </form>
 
-      <table className="invoice-table">
-        <thead>
-          <tr>
-            <th>Client</th>
-            <th>Transaction</th>
-            <th>Amount</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoices.map((inv) => (
-            <tr key={inv.id}>
-              <td>{inv.client}</td>
-              <td>{inv.transaction}</td>
-              <td>${inv.amount}</td>
-              <td>{inv.date}</td>
+      {loading ? (
+        <p>Loading invoices...</p>
+      ) : invoices.length === 0 ? (
+        <p>No invoices yet.</p>
+      ) : (
+        <table className="invoice-table">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Transaction</th>
+              <th>Amount</th>
+              <th>Date</th>
+              <th>Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {invoices.map((inv) => (
+              <tr key={inv.id}>
+                <td>{inv.client}</td>
+                <td>{inv.transaction}</td>
+                <td>${inv.amount}</td>
+                <td>{inv.date}</td>
+                <td>
+                  <button
+                    className="delete-btn"
+                    onClick={() => deleteInvoice(inv.id)}
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 };

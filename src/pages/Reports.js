@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Container, Row, Col, Card, Button, Form } from "react-bootstrap";
 import { Bar, Pie } from "react-chartjs-2";
 import {
@@ -11,42 +11,102 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
+import { db } from "../firebaseConfig";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
+  const [transactions, setTransactions] = useState([]);
+  const [filtered, setFiltered] = useState([]);
 
-  const income = 4800;
-  const expenses = 3000;
+  // 🔹 Fetch transactions from Firestore
+  useEffect(() => {
+    const fetchData = async () => {
+      const txnRef = collection(db, "transactions");
+      const snapshot = await getDocs(txnRef);
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setTransactions(data);
+      setFiltered(data);
+    };
+    fetchData();
+  }, []);
+
+  // 🔹 Filter transactions by date range
+  const filterByDate = () => {
+    if (!dateRange.from || !dateRange.to) {
+      setFiltered(transactions);
+      return;
+    }
+
+    const from = new Date(dateRange.from);
+    const to = new Date(dateRange.to);
+    const filteredData = transactions.filter((t) => {
+      const tDate = new Date(t.date);
+      return tDate >= from && tDate <= to;
+    });
+    setFiltered(filteredData);
+  };
+
+  // 🔹 Calculate totals
+  const income = filtered
+    .filter((t) => t.type === "Deposit" || t.type === "Income")
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
+  const expenses = filtered
+    .filter((t) => t.type === "Withdrawal" || t.type === "Expense")
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
   const profit = income - expenses;
 
+  // 🔹 Monthly summary for bar chart
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const incomeByMonth = Array(12).fill(0);
+  const expensesByMonth = Array(12).fill(0);
+
+  filtered.forEach((t) => {
+    const m = new Date(t.date).getMonth();
+    if (t.type === "Deposit" || t.type === "Income") incomeByMonth[m] += parseFloat(t.amount);
+    if (t.type === "Withdrawal" || t.type === "Expense") expensesByMonth[m] += parseFloat(t.amount);
+  });
+
   const barData = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May"],
+    labels: months,
     datasets: [
       {
         label: "Income",
-        data: [1200, 1500, 900, 800, 1400],
+        data: incomeByMonth,
         backgroundColor: "rgba(54, 162, 235, 0.6)",
       },
       {
         label: "Expenses",
-        data: [700, 800, 500, 600, 400],
+        data: expensesByMonth,
         backgroundColor: "rgba(255, 99, 132, 0.6)",
       },
     ],
   };
 
+  // 🔹 Expense breakdown for pie chart
+  const categoryTotals = {};
+  filtered
+    .filter((t) => t.type === "Withdrawal" || t.type === "Expense")
+    .forEach((t) => {
+      const cat = t.category || "Other";
+      categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat(t.amount);
+    });
+
   const pieData = {
-    labels: ["Rent", "Salaries", "Utilities", "Supplies"],
+    labels: Object.keys(categoryTotals),
     datasets: [
       {
-        data: [1200, 900, 400, 500],
+        data: Object.values(categoryTotals),
         backgroundColor: [
           "rgba(255, 99, 132, 0.7)",
           "rgba(54, 162, 235, 0.7)",
           "rgba(255, 206, 86, 0.7)",
           "rgba(75, 192, 192, 0.7)",
+          "rgba(153, 102, 255, 0.7)",
         ],
       },
     ],
@@ -55,7 +115,7 @@ export default function Reports() {
   return (
     <Container fluid className="mt-4">
       <Row className="align-items-center mb-4">
-        <Col><h2>Financial Reports</h2></Col>
+        <Col><h2>📊 Financial Reports</h2></Col>
         <Col className="text-end">
           <Form className="d-flex gap-2 justify-content-end">
             <Form.Control
@@ -68,7 +128,9 @@ export default function Reports() {
               value={dateRange.to}
               onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
             />
-            <Button variant="primary">Generate</Button>
+            <Button variant="primary" onClick={filterByDate}>
+              Generate
+            </Button>
           </Form>
         </Col>
       </Row>
@@ -115,7 +177,11 @@ export default function Reports() {
           <Card className="shadow-sm">
             <Card.Body>
               <Card.Title>Expense Breakdown</Card.Title>
-              <Pie data={pieData} />
+              {Object.keys(categoryTotals).length > 0 ? (
+                <Pie data={pieData} />
+              ) : (
+                <p>No expense data available</p>
+              )}
             </Card.Body>
           </Card>
         </Col>
