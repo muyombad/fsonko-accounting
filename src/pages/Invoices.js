@@ -1,33 +1,32 @@
-import React, { useState, useEffect } from "react";
-import "./Invoices.css";
-import { db } from "../firebaseConfig";
-import { collection, addDoc, getDocs, deleteDoc, doc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import { Table, Button, Form, Modal, Spinner, Alert } from "react-bootstrap";
+import {
+  getAllInvoices,
+  addInvoice,
+  updateInvoice,
+  deleteInvoice,
+} from "../services/invoiceService";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
-  const [newInvoice, setNewInvoice] = useState({
-    client: "",
-    transaction: "",
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [formData, setFormData] = useState({
+    clientName: "",
     amount: "",
     date: "",
+    status: "Unpaid",
+    description: "",
   });
-  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
 
-  const invoicesCollection = collection(db, "invoices");
-
-  // 🔹 Fetch invoices from Firestore
   const fetchInvoices = async () => {
     setLoading(true);
-    try {
-      const snapshot = await getDocs(invoicesCollection);
-      const invoiceList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setInvoices(invoiceList);
-    } catch (error) {
-      console.error("Error fetching invoices:", error);
-    }
+    const res = await getAllInvoices();
+    if (res.success) setInvoices(res.data);
+    else setError(res.error);
     setLoading(false);
   };
 
@@ -35,122 +34,193 @@ const Invoices = () => {
     fetchInvoices();
   }, []);
 
-  // 🔹 Handle form input change
-  const handleChange = (e) => {
-    setNewInvoice({ ...newInvoice, [e.target.name]: e.target.value });
-  };
-
-  // 🔹 Add invoice to Firestore
-  const addInvoice = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const { client, transaction, amount, date } = newInvoice;
-    if (!client || !transaction || !amount || !date) return;
-
-    const invoiceData = {
-      client,
-      transaction,
-      amount: parseFloat(amount),
-      date,
-    };
-
-    try {
-      await addDoc(invoicesCollection, invoiceData);
-      await fetchInvoices(); // refresh table
-      setNewInvoice({ client: "", transaction: "", amount: "", date: "" });
-      alert("✅ Invoice added successfully!");
-    } catch (error) {
-      console.error("Error adding invoice:", error);
-      alert("❌ Failed to add invoice!");
+    if (!formData.clientName || !formData.amount || !formData.date) {
+      setError("Please fill in all required fields.");
+      return;
     }
+    setLoading(true);
+    const res = editingId
+      ? await updateInvoice(editingId, formData)
+      : await addInvoice(formData);
+
+    if (!res.success) setError(res.error);
+    else {
+      setShowModal(false);
+      fetchInvoices();
+      setFormData({
+        clientName: "",
+        amount: "",
+        date: "",
+        status: "Unpaid",
+        description: "",
+      });
+      setEditingId(null);
+    }
+    setLoading(false);
   };
 
-  // 🔹 Delete invoice
-  const deleteInvoice = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
-    try {
-      await deleteDoc(doc(db, "invoices", id));
-      await fetchInvoices();
-      alert("🗑️ Invoice deleted!");
-    } catch (error) {
-      console.error("Error deleting invoice:", error);
-      alert("❌ Failed to delete invoice!");
-    }
+  const handleEdit = (invoice) => {
+    setFormData(invoice);
+    setEditingId(invoice.id);
+    setShowModal(true);
   };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this invoice?")) return;
+    setLoading(true);
+    const res = await deleteInvoice(id);
+    if (!res.success) setError(res.error);
+    fetchInvoices();
+    setLoading(false);
+  };
+
+  const filteredInvoices = invoices.filter(
+    (inv) =>
+      inv.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.status?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalAmount = filteredInvoices.reduce(
+    (sum, inv) => sum + Number(inv.amount || 0),
+    0
+  );
 
   return (
-    <div className="invoices-page">
-      <h2>🧾 Invoices</h2>
-
-      <form className="invoice-form" onSubmit={addInvoice}>
-        <input
+    <div className="container mt-4">
+      <h3>Invoices</h3>
+      {error && <Alert variant="danger">{error}</Alert>}
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <Form.Control
+          style={{ width: "250px" }}
           type="text"
-          name="client"
-          placeholder="Client Name"
-          value={newInvoice.client}
-          onChange={handleChange}
-          required
+          placeholder="Search..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
-        <input
-          type="text"
-          name="transaction"
-          placeholder="Transaction ID"
-          value={newInvoice.transaction}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="number"
-          name="amount"
-          placeholder="Amount"
-          value={newInvoice.amount}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="date"
-          name="date"
-          value={newInvoice.date}
-          onChange={handleChange}
-          required
-        />
-        <button type="submit">Add Invoice</button>
-      </form>
+        <Button onClick={() => setShowModal(true)}>Add Invoice</Button>
+      </div>
 
       {loading ? (
-        <p>Loading invoices...</p>
-      ) : invoices.length === 0 ? (
-        <p>No invoices yet.</p>
+        <div className="text-center my-4">
+          <Spinner animation="border" />
+        </div>
       ) : (
-        <table className="invoice-table">
+        <Table striped bordered hover responsive>
           <thead>
             <tr>
+              <th>Invoice #</th>
               <th>Client</th>
-              <th>Transaction</th>
-              <th>Amount</th>
+              <th>Amount (UGX)</th>
               <th>Date</th>
-              <th>Action</th>
+              <th>Status</th>
+              <th>Description</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {invoices.map((inv) => (
+            {filteredInvoices.map((inv) => (
               <tr key={inv.id}>
-                <td>{inv.client}</td>
-                <td>{inv.transaction}</td>
-                <td>${inv.amount}</td>
+                <td>{inv.invoiceNumber}</td>
+                <td>{inv.clientName}</td>
+                <td>{inv.amount}</td>
                 <td>{inv.date}</td>
+                <td>{inv.status}</td>
+                <td>{inv.description}</td>
                 <td>
-                  <button
-                    className="delete-btn"
-                    onClick={() => deleteInvoice(inv.id)}
+                  <Button
+                    size="sm"
+                    variant="warning"
+                    onClick={() => handleEdit(inv)}
+                    className="me-2"
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => handleDelete(inv.id)}
                   >
                     Delete
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
+      <h5 className="text-end mt-3">Total: UGX {totalAmount.toLocaleString()}</h5>
+
+      <Modal show={showModal} onHide={() => setShowModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>{editingId ? "Edit Invoice" : "Add Invoice"}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form onSubmit={handleSubmit}>
+            <Form.Group className="mb-3">
+              <Form.Label>Client Name</Form.Label>
+              <Form.Control
+                type="text"
+                value={formData.clientName}
+                onChange={(e) =>
+                  setFormData({ ...formData, clientName: e.target.value })
+                }
+                required
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Amount</Form.Label>
+              <Form.Control
+                type="number"
+                value={formData.amount}
+                onChange={(e) =>
+                  setFormData({ ...formData, amount: e.target.value })
+                }
+                required
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Date</Form.Label>
+              <Form.Control
+                type="date"
+                value={formData.date}
+                onChange={(e) =>
+                  setFormData({ ...formData, date: e.target.value })
+                }
+                required
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Status</Form.Label>
+              <Form.Select
+                value={formData.status}
+                onChange={(e) =>
+                  setFormData({ ...formData, status: e.target.value })
+                }
+              >
+                <option>Paid</option>
+                <option>Unpaid</option>
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Description</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={3}
+                value={formData.description}
+                onChange={(e) =>
+                  setFormData({ ...formData, description: e.target.value })
+                }
+              />
+            </Form.Group>
+            <Button type="submit" variant="primary" disabled={loading}>
+              {loading ? "Saving..." : "Save"}
+            </Button>
+          </Form>
+        </Modal.Body>
+      </Modal>
     </div>
   );
 };

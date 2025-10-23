@@ -1,215 +1,167 @@
-import React, { useState, useEffect } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-} from "recharts";
-import jsPDF from "jspdf";
-import { db } from "../firebaseConfig";
-import {
-  collection,
-  addDoc,
-  getDocs,
-} from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import { Table, Button, Modal, Form, Spinner, Alert, InputGroup, FormControl } from "react-bootstrap";
+import { getAllTransactions, addTransaction, updateTransaction, deleteTransaction } from "../services/bankCashService";
 
 const BankCash = () => {
-  const [banks, setBanks] = useState(["Cash", "Equity Bank", "Stanbic Bank"]);
   const [transactions, setTransactions] = useState([]);
-  const [newTxn, setNewTxn] = useState({
-    type: "Deposit",
-    account: "Equity Bank",
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({
+    accountName: "",
+    transactionType: "Deposit",
     amount: "",
     date: "",
     description: "",
+    transferToAccount: ""
   });
-  const [newBank, setNewBank] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
 
-  const txnCollection = collection(db, "transactions");
-
-  // 🔹 Fetch transactions from Firestore
-  const fetchTransactions = async () => {
+  const load = async () => {
     setLoading(true);
-    try {
-      const snapshot = await getDocs(txnCollection);
-      const txnList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setTransactions(txnList);
-    } catch (error) {
-      console.error("Error fetching transactions:", error);
-    }
+    const res = await getAllTransactions();
+    if (res.success) setTransactions(res.data);
+    else setError(res.error);
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchTransactions();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  // 🔹 Handle form input
-  const handleChange = (e) => {
-    setNewTxn({ ...newTxn, [e.target.name]: e.target.value });
+  const openNew = () => {
+    setEditing(null);
+    setForm({ accountName: "", transactionType: "Deposit", amount: "", date: "", description: "", transferToAccount: "" });
+    setShowModal(true);
   };
 
-  // 🔹 Add new transaction
-  const addTransaction = async (e) => {
-    e.preventDefault();
-    if (!newTxn.amount || !newTxn.account) return;
+  const openEdit = (t) => {
+    setEditing(t);
+    setForm({ ...t, transferToAccount: t.transferToAccount || "" });
+    setShowModal(true);
+  };
 
-    try {
-      const txnData = {
-        ...newTxn,
-        amount: parseFloat(newTxn.amount),
-        date: newTxn.date || new Date().toISOString().split("T")[0],
-      };
-
-      await addDoc(txnCollection, txnData);
-      await fetchTransactions();
-      setNewTxn({
-        type: "Deposit",
-        account: "Equity Bank",
-        amount: "",
-        date: "",
-        description: "",
-      });
-      alert("✅ Transaction added successfully!");
-    } catch (error) {
-      console.error("Error adding transaction:", error);
-      alert("❌ Failed to add transaction!");
+  const handleSave = async () => {
+    if (!form.accountName || !form.amount || !form.date) {
+      setError("Please fill account, amount and date");
+      return;
     }
+    setSaving(true);
+    const res = editing ? await updateTransaction(editing.id, form) : await addTransaction(form);
+    if (res.success) {
+      setShowModal(false);
+      load();
+    } else {
+      setError(res.error || "Failed to save");
+    }
+    setSaving(false);
   };
 
-  // 🔹 Get current balance for each account
-  const getBalance = (account) => {
-    let balance = 0;
-    transactions.forEach((t) => {
-      if (t.account === account) {
-        balance += t.type === "Deposit" ? parseFloat(t.amount) : -parseFloat(t.amount);
-      }
-    });
-    return balance.toFixed(2);
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this transaction?")) return;
+    const res = await deleteTransaction(id);
+    if (res.success) load();
+    else setError(res.error || "Failed to delete");
   };
 
-  // 🔹 Chart data
-  const data = banks.map((bank) => ({
-    name: bank,
-    balance: parseFloat(getBalance(bank)),
-  }));
+  const filtered = transactions.filter(t => {
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return (t.accountName && t.accountName.toLowerCase().includes(q)) ||
+           (t.transactionType && t.transactionType.toLowerCase().includes(q)) ||
+           (t.description && t.description.toLowerCase().includes(q));
+  });
 
-  // 🔹 Generate PDF report
-  const generatePDF = () => {
-    const doc = new jsPDF();
-    doc.text("Bank & Cash Summary Report", 20, 20);
-    let y = 40;
-    banks.forEach((bank) => {
-      doc.text(`${bank}: $${getBalance(bank)}`, 20, y);
-      y += 10;
-    });
-    doc.save("bank_report.pdf");
-  };
+  const totals = filtered.reduce((acc, t) => {
+    const amt = Number(t.amount) || 0;
+    if (t.transactionType === "Deposit") acc.deposits += amt;
+    else if (t.transactionType === "Withdrawal") acc.withdrawals += amt;
+    return acc;
+  }, { deposits: 0, withdrawals: 0 });
 
   return (
-    <div className="bank-cash-page">
-      <h2>🏦 Bank & Cash Management</h2>
-
-      {/* Add New Bank Section */}
-      <div className="add-bank-section">
-        <h4>Add New Bank</h4>
-        <div className="add-bank-form">
-          <input
-            type="text"
-            placeholder="Enter bank name (e.g. Absa Bank)"
-            value={newBank}
-            onChange={(e) => setNewBank(e.target.value)}
-          />
-          <button
-            onClick={() => {
-              if (newBank.trim() && !banks.includes(newBank.trim())) {
-                setBanks([...banks, newBank.trim()]);
-                setNewBank("");
-              }
-            }}
-          >
-            Add Bank
-          </button>
+    <div className="container mt-4">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h4>Bank & Cash</h4>
+        <div>
+          <Button variant="primary" onClick={openNew}>New Transaction</Button>
         </div>
       </div>
 
-      {/* Add Transaction */}
-      <form onSubmit={addTransaction} className="transaction-form">
-        <select name="type" value={newTxn.type} onChange={handleChange}>
-          <option value="Deposit">Deposit</option>
-          <option value="Withdrawal">Withdrawal</option>
-        </select>
-        <select name="account" value={newTxn.account} onChange={handleChange}>
-          {banks.map((bank, i) => (
-            <option key={i} value={bank}>
-              {bank}
-            </option>
-          ))}
-        </select>
-        <input
-          type="number"
-          name="amount"
-          placeholder="Amount"
-          value={newTxn.amount}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="date"
-          name="date"
-          value={newTxn.date}
-          onChange={handleChange}
-        />
-        <input
-          type="text"
-          name="description"
-          placeholder="Description"
-          value={newTxn.description}
-          onChange={handleChange}
-        />
-        <button type="submit">Add</button>
-      </form>
+      {error && <Alert variant="danger">{String(error)}</Alert>}
 
-      {/* Balances Section */}
-      <div className="balances">
-        <h4>💰 Account Balances</h4>
-        {banks.map((bank, i) => (
-          <p key={i}>
-            {bank === "Cash" ? "💵" : "🏦"} {bank}:{" "}
-            <strong>${getBalance(bank)}</strong>
-          </p>
-        ))}
+      <div className="d-flex mb-2 gap-2">
+        <InputGroup style={{ maxWidth: 360 }}>
+          <FormControl placeholder="Search by account, type or description" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </InputGroup>
       </div>
 
-      {/* Chart */}
-      <div className="chart-section">
-        <h4>📊 Balance Overview</h4>
-        {loading ? (
-          <p>Loading chart...</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="balance" fill="#007bff" />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+      {loading ? <div className="text-center"><Spinner animation="border" /></div> : (
+        <>
+          <Table striped bordered hover responsive>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Account</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Balance After</th>
+                <th>Description</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(t => (
+                <tr key={t.id}>
+                  <td>{t.date}</td>
+                  <td>{t.accountName}</td>
+                  <td>{t.transactionType}</td>
+                  <td>{Number(t.amount).toFixed(2)}</td>
+                  <td>{t.balanceAfter != null ? Number(t.balanceAfter).toFixed(2) : "-"}</td>
+                  <td>{t.description}</td>
+                  <td>
+                    <Button size="sm" variant="warning" className="me-2" onClick={() => openEdit(t)}>Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => handleDelete(t.id)}>Delete</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
 
-      {/* PDF Report */}
-      <div className="pdf-section">
-        <button onClick={generatePDF}>📄 Download Report (PDF)</button>
-      </div>
+          <div className="d-flex justify-content-between mt-2">
+            <div>Total Deposits: <strong>{totals.deposits.toFixed(2)}</strong></div>
+            <div>Total Withdrawals: <strong>{totals.withdrawals.toFixed(2)}</strong></div>
+            <div>Net Balance: <strong>{(totals.deposits - totals.withdrawals).toFixed(2)}</strong></div>
+          </div>
+        </>
+      )}
+
+      <Modal show={showModal} onHide={() => setShowModal(false)}>
+        <Modal.Header closeButton><Modal.Title>{editing ? "Edit Transaction" : "New Transaction"}</Modal.Title></Modal.Header>
+        <Modal.Body>
+          <Form>
+            <Form.Group className="mb-2"><Form.Label>Account Name</Form.Label><Form.Control value={form.accountName} onChange={(e) => setForm({...form, accountName: e.target.value})} /></Form.Group>
+            <Form.Group className="mb-2"><Form.Label>Type</Form.Label>
+              <Form.Select value={form.transactionType} onChange={(e) => setForm({...form, transactionType: e.target.value})}>
+                <option>Deposit</option>
+                <option>Withdrawal</option>
+                <option>Transfer</option>
+              </Form.Select>
+            </Form.Group>
+            {form.transactionType === "Transfer" && (
+              <Form.Group className="mb-2"><Form.Label>Transfer To Account</Form.Label><Form.Control value={form.transferToAccount} onChange={(e) => setForm({...form, transferToAccount: e.target.value})} /></Form.Group>
+            )}
+            <Form.Group className="mb-2"><Form.Label>Amount</Form.Label><Form.Control type="number" value={form.amount} onChange={(e) => setForm({...form, amount: e.target.value})} /></Form.Group>
+            <Form.Group className="mb-2"><Form.Label>Date</Form.Label><Form.Control type="date" value={form.date} onChange={(e) => setForm({...form, date: e.target.value})} /></Form.Group>
+            <Form.Group className="mb-2"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={form.description} onChange={(e) => setForm({...form, description: e.target.value})} /></Form.Group>
+            {saving && <div className="text-center"><Spinner animation="border" /></div>}
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

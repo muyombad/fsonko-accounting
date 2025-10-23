@@ -1,159 +1,151 @@
-import React, { useState, useEffect } from "react";
-import "./Ledgers.css";
-import { db } from "../firebaseConfig";
-import {
-  collection,
-  addDoc,
-  getDocs,
-  deleteDoc,
-  doc,
-} from "firebase/firestore";
+// src/pages/Ledgers.js
+import React, { useEffect, useState } from "react";
+import { Table, Button, Form, Spinner, Alert, Modal } from "react-bootstrap";
+import { getAllLedgers, ensureLedger } from "../services/ledgerService";
+import { getEntriesForLedger } from "../services/ledgerEntryService";
 
-function Ledgers() {
+const Ledgers = () => {
   const [ledgers, setLedgers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [newLedger, setNewLedger] = useState({
-    name: "",
-    type: "Asset",
-    balance: "",
-  });
+  const [loading, setLoading] = useState(false);
+  const [selectedLedger, setSelectedLedger] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newLedger, setNewLedger] = useState({ name: "", type: "Asset" });
 
-  const ledgersCollection = collection(db, "ledgers");
-
-  // 🔹 Fetch ledgers from Firestore
-  const fetchLedgers = async () => {
+  const loadLedgers = async () => {
     setLoading(true);
-    try {
-      const snapshot = await getDocs(ledgersCollection);
-      const ledgerList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setLedgers(ledgerList);
-    } catch (error) {
-      console.error("Error fetching ledgers:", error);
-    }
+    const res = await getAllLedgers();
+    if (res.success) setLedgers(res.data || []);
+    else setError(res.error || "Failed to load ledgers");
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchLedgers();
+    loadLedgers();
   }, []);
 
-  // 🔹 Handle input change
-  const handleChange = (e) => {
-    setNewLedger({ ...newLedger, [e.target.name]: e.target.value });
+  const loadEntries = async (ledgerName) => {
+    setEntryLoading(true);
+    setSelectedLedger(ledgerName);
+    const res = await getEntriesForLedger(ledgerName);
+    if (res.success) setEntries(res.data || []);
+    else setError(res.error || "Failed to load entries");
+    setEntryLoading(false);
   };
 
-  // 🔹 Add new ledger to Firestore
-  const handleAddLedger = async (e) => {
-    e.preventDefault();
-    if (!newLedger.name || newLedger.balance === "") return;
-
-    const ledgerData = {
-      name: newLedger.name,
-      type: newLedger.type,
-      balance: parseFloat(newLedger.balance),
-    };
-
-    try {
-      await addDoc(ledgersCollection, ledgerData);
-      await fetchLedgers(); // refresh list
-      setNewLedger({ name: "", type: "Asset", balance: "" });
-      alert("✅ Ledger added successfully!");
-    } catch (error) {
-      console.error("Error adding ledger:", error);
-      alert("❌ Failed to add ledger!");
+  const handleCreateLedger = async () => {
+    if (!newLedger.name) {
+      setError("Ledger name required");
+      return;
     }
-  };
-
-  // 🔹 Delete a ledger
-  const handleDeleteLedger = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this ledger?")) return;
-
-    try {
-      await deleteDoc(doc(db, "ledgers", id));
-      await fetchLedgers();
-      alert("🗑️ Ledger deleted successfully!");
-    } catch (error) {
-      console.error("Error deleting ledger:", error);
-      alert("❌ Failed to delete ledger!");
+    setError("");
+    setLoading(true);
+    const res = await ensureLedger(newLedger.name, newLedger.type);
+    setLoading(false);
+    if (res.success) {
+      setShowCreateModal(false);
+      setNewLedger({ name: "", type: "Asset" });
+      loadLedgers();
+    } else {
+      setError(res.error || "Failed to create ledger");
     }
   };
 
   return (
-    <div className="ledgers-container">
-      <h2>Chart of Accounts</h2>
+    <div className="container mt-4">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h4>Ledgers</h4>
+        <div>
+          <Button onClick={() => setShowCreateModal(true)}>New Ledger</Button>
+        </div>
+      </div>
 
-      {/* Ledger Form */}
-      <form className="ledger-form" onSubmit={handleAddLedger}>
-        <input
-          type="text"
-          name="name"
-          placeholder="Ledger Name"
-          value={newLedger.name}
-          onChange={handleChange}
-          required
-        />
-        <select name="type" value={newLedger.type} onChange={handleChange}>
-          <option value="Asset">Asset</option>
-          <option value="Liability">Liability</option>
-          <option value="Income">Income</option>
-          <option value="Expense">Expense</option>
-        </select>
-        <input
-          type="number"
-          name="balance"
-          placeholder="Opening Balance"
-          value={newLedger.balance}
-          onChange={handleChange}
-          required
-        />
-        <button type="submit">Add Ledger</button>
-      </form>
+      {error && <Alert variant="danger">{error}</Alert>}
 
-      {/* Ledger Table */}
       {loading ? (
-        <p className="loading-text">Loading ledgers...</p>
-      ) : ledgers.length === 0 ? (
-        <p className="empty-text">No ledgers added yet.</p>
+        <div className="text-center"><Spinner animation="border" /></div>
       ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Ledger Name</th>
-              <th>Type</th>
-              <th>Balance</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledgers.map((ledger, index) => (
-              <tr key={ledger.id}>
-                <td>{index + 1}</td>
-                <td>{ledger.name}</td>
-                <td>{ledger.type}</td>
-                <td
-                  className={ledger.balance < 0 ? "negative" : "positive"}
-                >
-                  {ledger.balance.toLocaleString()}
-                </td>
-                <td>
-                  <button
-                    className="delete-btn"
-                    onClick={() => handleDeleteLedger(ledger.id)}
-                  >
-                    Delete
-                  </button>
-                </td>
+        <>
+          <Table striped bordered hover responsive>
+            <thead>
+              <tr>
+                <th>Ledger</th>
+                <th>Type</th>
+                <th>Balance</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ledgers.length === 0 ? (
+                <tr><td colSpan="4" className="text-center text-muted">No ledgers found.</td></tr>
+              ) : ledgers.map(l => (
+                <tr key={l.id}>
+                  <td>{l.name}</td>
+                  <td>{l.type}</td>
+                  <td>{Number(l.balance || 0).toFixed(2)}</td>
+                  <td>
+                    <Button size="sm" variant="primary" className="me-2" onClick={() => loadEntries(l.name)}>View</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+
+          {selectedLedger && (
+            <div className="mt-3">
+              <h5>Entries for: {selectedLedger}</h5>
+              {entryLoading ? (
+                <div className="text-center"><Spinner animation="border" /></div>
+              ) : entries.length === 0 ? (
+                <div className="text-muted">No entries for this ledger yet.</div>
+              ) : (
+                <Table striped bordered responsive>
+                  <thead><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance After</th></tr></thead>
+                  <tbody>
+                    {entries.map(r => (
+                      <tr key={r.id}>
+                        <td>{r.date}</td>
+                        <td>{r.description}</td>
+                        <td>{Number(r.debit || 0).toFixed(2)}</td>
+                        <td>{Number(r.credit || 0).toFixed(2)}</td>
+                        <td>{Number(r.balanceAfter || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </div>
+          )}
+        </>
       )}
+
+      <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)}>
+        <Modal.Header closeButton><Modal.Title>New Ledger</Modal.Title></Modal.Header>
+        <Modal.Body>
+          <Form.Group className="mb-2">
+            <Form.Label>Ledger Name</Form.Label>
+            <Form.Control value={newLedger.name} onChange={(e) => setNewLedger({...newLedger, name: e.target.value})} />
+          </Form.Group>
+          <Form.Group className="mb-2">
+            <Form.Label>Type</Form.Label>
+            <Form.Select value={newLedger.type} onChange={(e) => setNewLedger({...newLedger, type: e.target.value})}>
+              <option>Asset</option>
+              <option>Liability</option>
+              <option>Equity</option>
+              <option>Income</option>
+              <option>Expense</option>
+            </Form.Select>
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+          <Button variant="primary" onClick={handleCreateLedger}>Create</Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
-}
+};
 
 export default Ledgers;

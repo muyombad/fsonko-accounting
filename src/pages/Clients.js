@@ -14,121 +14,100 @@ import {
   Form,
   Card,
   Spinner,
+  Alert,
 } from "react-bootstrap";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
 
 function Clients() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editingClient, setEditingClient] = useState(null);
+  const [error, setError] = useState(null);
+
   const [newClient, setNewClient] = useState({
     name: "",
     company: "",
     email: "",
     phone: "",
-    address: "",
-    balance: "",
   });
 
-  // Fetch clients
+  const [editingClient, setEditingClient] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchClients = async () => {
+    setLoading(true);
+    const res = await getClients();
+    if (res.success) {
+      setClients(res.data || []);
+      setError(null);
+    } else {
+      setError(res.error || "Failed to load clients");
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchClients = async () => {
-      setLoading(true);
-      try {
-        const data = await getClients();
-        setClients(data);
-      } catch (error) {
-        toast.error("❌ Error loading clients.");
-        console.error(error);
-      }
-      setLoading(false);
-    };
     fetchClients();
   }, []);
 
   const handleAddClient = async (e) => {
     e.preventDefault();
-    if (!newClient.name || !newClient.company || !newClient.email) {
-      toast.warn("⚠️ Please fill in all required fields!");
-      return;
+    setSaving(true);
+    const res = await addClient(newClient);
+    setSaving(false);
+    if (res.success) {
+      setNewClient({ name: "", company: "", email: "", phone: "" });
+      fetchClients();
+    } else {
+      setError(res.error || "Failed to add client");
     }
+  };
 
-    setLoading(true);
-    try {
-      await addClient(newClient);
-      const updatedClients = await getClients();
-      setClients(updatedClients);
-      toast.success("✅ Client added successfully!");
-      setNewClient({
-        name: "",
-        company: "",
-        email: "",
-        phone: "",
-        address: "",
-        balance: "",
-      });
-    } catch (error) {
-      toast.error("❌ Error adding client.");
-      console.error(error);
+  const startEdit = (client) => {
+    setEditingClient({ ...client });
+  };
+
+  const cancelEdit = () => setEditingClient(null);
+
+  const handleEditChange = (e) => {
+    setEditingClient({ ...editingClient, [e.target.name]: e.target.value });
+  };
+
+  const saveEdit = async (id) => {
+    setSaving(true);
+    const { id: cid, ...updates } = editingClient;
+    const res = await updateClient(id, updates);
+    setSaving(false);
+    if (res.success) {
+      setEditingClient(null);
+      fetchClients();
+    } else {
+      setError(res.error || "Failed to update client");
     }
-    setLoading(false);
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this client?")) return;
-
-    setLoading(true);
-    try {
-      await deleteClient(id); // Firestore delete
-      const updatedClients = await getClients();
-      setClients(updatedClients);
-      toast.success("🗑️ Client deleted successfully!");
-    } catch (error) {
-      toast.error("❌ Error deleting client.");
-      console.error(error);
+    const res = await deleteClient(id);
+    if (res.success) {
+      fetchClients();
+    } else {
+      setError(res.error || "Failed to delete client");
     }
-    setLoading(false);
-  };
-
-  const handleEditChange = (e) => {
-    const { name, value } = e.target;
-    setEditingClient({ ...editingClient, [name]: value });
-  };
-
-  const handleUpdateSave = async () => {
-    if (!editingClient.name || !editingClient.company || !editingClient.email) {
-      toast.warn("⚠️ Please fill in all required fields!");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await updateClient(editingClient.id, editingClient);
-      const updatedClients = await getClients();
-      setClients(updatedClients);
-      setEditingClient(null);
-      toast.success("💾 Client updated successfully!");
-    } catch (error) {
-      toast.error("❌ Error updating client.");
-      console.error(error);
-    }
-    setLoading(false);
   };
 
   return (
     <Container className="mt-4">
-      <ToastContainer position="top-center" autoClose={2000} />
-      <h2 className="text-center mb-4 fw-bold">👥 Client Management</h2>
-
-      {/* Add Client Form */}
-      <Card className="shadow-sm mb-4">
+      <Card>
+        <Card.Header>
+          <h5>Clients</h5>
+        </Card.Header>
         <Card.Body>
+          {error && <Alert variant="danger">{String(error)}</Alert>}
+
           <Form onSubmit={handleAddClient}>
-            <Row className="g-3">
-              <Col md={4}>
+            <Row>
+              <Col md={3}>
                 <Form.Group>
-                  <Form.Label>Client Name *</Form.Label>
+                  <Form.Label>Name *</Form.Label>
                   <Form.Control
                     type="text"
                     placeholder="Enter client name"
@@ -136,11 +115,11 @@ function Clients() {
                     onChange={(e) =>
                       setNewClient({ ...newClient, name: e.target.value })
                     }
+                    required
                   />
                 </Form.Group>
               </Col>
-
-              <Col md={4}>
+              <Col md={3}>
                 <Form.Group>
                   <Form.Label>Company *</Form.Label>
                   <Form.Control
@@ -153,13 +132,12 @@ function Clients() {
                   />
                 </Form.Group>
               </Col>
-
-              <Col md={4}>
+              <Col md={3}>
                 <Form.Group>
-                  <Form.Label>Email *</Form.Label>
+                  <Form.Label>Email</Form.Label>
                   <Form.Control
                     type="email"
-                    placeholder="Enter email address"
+                    placeholder="Enter email"
                     value={newClient.email}
                     onChange={(e) =>
                       setNewClient({ ...newClient, email: e.target.value })
@@ -167,13 +145,12 @@ function Clients() {
                   />
                 </Form.Group>
               </Col>
-
-              <Col md={4}>
+              <Col md={3}>
                 <Form.Group>
                   <Form.Label>Phone</Form.Label>
                   <Form.Control
                     type="text"
-                    placeholder="Enter phone number"
+                    placeholder="Enter phone"
                     value={newClient.phone}
                     onChange={(e) =>
                       setNewClient({ ...newClient, phone: e.target.value })
@@ -181,73 +158,38 @@ function Clients() {
                   />
                 </Form.Group>
               </Col>
-
-              <Col md={4}>
-                <Form.Group>
-                  <Form.Label>Address</Form.Label>
-                  <Form.Control
-                    type="text"
-                    placeholder="Enter address"
-                    value={newClient.address}
-                    onChange={(e) =>
-                      setNewClient({ ...newClient, address: e.target.value })
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={4}>
-                <Form.Group>
-                  <Form.Label>Opening Balance</Form.Label>
-                  <Form.Control
-                    type="number"
-                    placeholder="Enter balance"
-                    value={newClient.balance}
-                    onChange={(e) =>
-                      setNewClient({ ...newClient, balance: e.target.value })
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col xs="12" className="text-center mt-3">
-                <Button type="submit" variant="primary" className="px-5">
-                  ➕ Add Client
+            </Row>
+            <Row className="mt-3">
+              <Col>
+                <Button type="submit" disabled={saving}>
+                  {saving ? <Spinner animation="border" size="sm" /> : "Add Client"}
                 </Button>
               </Col>
             </Row>
           </Form>
-        </Card.Body>
-      </Card>
 
-      {/* Client List */}
-      <Card className="shadow-sm">
-        <Card.Body>
-          <h5 className="fw-bold mb-3">📋 Client List</h5>
+          <hr />
 
           {loading ? (
-            <div className="text-center my-4">
-              <Spinner animation="border" variant="primary" />
-              <p className="mt-2 text-muted">Loading clients...</p>
+            <div className="text-center">
+              <Spinner animation="border" />
             </div>
           ) : (
             <Table striped bordered hover responsive>
-              <thead className="table-primary">
+              <thead>
                 <tr>
                   <th>#</th>
                   <th>Name</th>
                   <th>Company</th>
                   <th>Email</th>
                   <th>Phone</th>
-                  <th>Address</th>
-                  <th>Balance</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {clients.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="text-center text-muted">
+                    <td colSpan="6" className="text-center text-muted">
                       No clients added yet.
                     </td>
                   </tr>
@@ -286,35 +228,15 @@ function Clients() {
                             />
                           </td>
                           <td>
-                            <Form.Control
-                              name="address"
-                              value={editingClient.address}
-                              onChange={handleEditChange}
-                            />
-                          </td>
-                          <td>
-                            <Form.Control
-                              name="balance"
-                              type="number"
-                              value={editingClient.balance}
-                              onChange={handleEditChange}
-                            />
-                          </td>
-                          <td className="text-center">
                             <Button
-                              variant="success"
                               size="sm"
-                              className="me-2"
-                              onClick={handleUpdateSave}
+                              onClick={() => saveEdit(client.id)}
+                              disabled={saving}
                             >
-                              💾 Save
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => setEditingClient(null)}
-                            >
-                              ❌ Cancel
+                              Save
+                            </Button>{' '}
+                            <Button size="sm" variant="secondary" onClick={cancelEdit}>
+                              Cancel
                             </Button>
                           </td>
                         </>
@@ -324,23 +246,12 @@ function Clients() {
                           <td>{client.company}</td>
                           <td>{client.email}</td>
                           <td>{client.phone}</td>
-                          <td>{client.address}</td>
-                          <td>{client.balance}</td>
-                          <td className="text-center">
-                            <Button
-                              variant="warning"
-                              size="sm"
-                              className="me-2"
-                              onClick={() => setEditingClient(client)}
-                            >
-                              ✏️ Update
-                            </Button>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => handleDelete(client.id)}
-                            >
-                              🗑️ Delete
+                          <td>
+                            <Button size="sm" onClick={() => startEdit(client)}>
+                              Edit
+                            </Button>{' '}
+                            <Button size="sm" variant="danger" onClick={() => handleDelete(client.id)}>
+                              Delete
                             </Button>
                           </td>
                         </>
