@@ -10,7 +10,12 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "../firebaseConfig";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -20,20 +25,24 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    let txData = [];
+    let clientData = [];
+    let pendingData = [];
+    let paidData = [];
+    const unsubscribers = [];
+
+    const updateDashboard = () => {
       try {
-        // 🔹 Fetch bank transactions
-        const txSnap = await getDocs(collection(db, "bank_transactions"));
         let totalIncome = 0;
         let totalExpenses = 0;
         const monthlyIncome = Array(12).fill(0);
         const monthlyExpenses = Array(12).fill(0);
 
-        txSnap.forEach((doc) => {
+        txData.forEach((doc) => {
           const tx = doc.data();
           const amount = Number(tx.amount) || 0;
           const date = tx.date ? new Date(tx.date) : new Date();
-          const monthIndex = date.getMonth(); // 0 = Jan, 11 = Dec
+          const monthIndex = date.getMonth();
 
           if (tx.transactionType === "Deposit") {
             totalIncome += amount;
@@ -44,22 +53,9 @@ export default function DashboardHome() {
           }
         });
 
-        // 🔹 Fetch clients
-        const clientsSnap = await getDocs(collection(db, "clients"));
-        const clients = clientsSnap.size;
-
-        // 🔹 Fetch pending invoices
-        const pendingSnap = await getDocs(
-          query(collection(db, "invoices"), where("status", "==", "Unpaid"))
-        );
-        const pendingInvoices = pendingSnap.size;
-
-
-        // 🔹 Fetch paid invoices
-        const paidSnap = await getDocs(
-          query(collection(db, "invoices"), where("status", "==", "Paid"))
-        );
-        const paidInvoices = paidSnap.size;
+        const clients = clientData.length;
+        const pendingInvoices = pendingData.length;
+        const paidInvoices = paidData.length;
 
         const months = [
           "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -76,14 +72,48 @@ export default function DashboardHome() {
           incomeData: monthlyIncome,
           expenseData: monthlyExpenses,
         });
-      } catch (error) {
-        console.error("Error loading dashboard:", error);
-      } finally {
         setLoading(false);
+      } catch (err) {
+        console.error("Error updating dashboard:", err);
       }
     };
 
-    fetchDashboardData();
+    // 🔹 Listen to Bank Transactions
+    const unsubTx = onSnapshot(collection(db, "bank_transactions"), (snapshot) => {
+      txData = snapshot.docs;
+      updateDashboard();
+    });
+    unsubscribers.push(unsubTx);
+
+    // 🔹 Listen to Clients
+    const unsubClients = onSnapshot(collection(db, "clients"), (snapshot) => {
+      clientData = snapshot.docs;
+      updateDashboard();
+    });
+    unsubscribers.push(unsubClients);
+
+    // 🔹 Listen to Pending Invoices
+    const unsubPending = onSnapshot(
+      query(collection(db, "invoices"), where("status", "==", "Unpaid")),
+      (snapshot) => {
+        pendingData = snapshot.docs;
+        updateDashboard();
+      }
+    );
+    unsubscribers.push(unsubPending);
+
+    // 🔹 Listen to Paid Invoices
+    const unsubPaid = onSnapshot(
+      query(collection(db, "invoices"), where("status", "==", "Paid")),
+      (snapshot) => {
+        paidData = snapshot.docs;
+        updateDashboard();
+      }
+    );
+    unsubscribers.push(unsubPaid);
+
+    // Cleanup listeners when component unmounts
+    return () => unsubscribers.forEach((unsub) => unsub && unsub());
   }, []);
 
   // 🔹 Chart Data
@@ -107,7 +137,7 @@ export default function DashboardHome() {
     responsive: true,
     plugins: {
       legend: { position: "top" },
-      title: { display: true, text: "Income vs Expenses (Monthly)" },
+      title: { display: true, text: "Income vs Expenses (Live)" },
     },
   };
 
@@ -118,7 +148,7 @@ export default function DashboardHome() {
       {loading ? (
         <div className="text-center mt-5">
           <Spinner animation="border" variant="primary" />
-          <p className="text-muted mt-2">Loading dashboard data...</p>
+          <p className="text-muted mt-2">Loading live dashboard data...</p>
         </div>
       ) : (
         <>
@@ -146,7 +176,7 @@ export default function DashboardHome() {
               </Card>
             </Col>
 
-            <Col md={3}>
+            <Col md={2}>
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Clients</Card.Title>
@@ -155,7 +185,7 @@ export default function DashboardHome() {
               </Card>
             </Col>
 
-            <Col md={3}>
+            <Col md={2}>
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Pending Invoices</Card.Title>
@@ -164,7 +194,7 @@ export default function DashboardHome() {
               </Card>
             </Col>
 
-            <Col md={3}>
+            <Col md={2}>
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Paid Invoices</Card.Title>
