@@ -10,18 +10,22 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 export default function DashboardHome() {
-  const [dashboardData, setDashboardData] = useState(null);
+  const [dashboardData, setDashboardData] = useState({
+    totalIncome: 0,
+    totalExpenses: 0,
+    clients: 0,
+    pendingInvoices: 0,
+    paidInvoices: 0,
+    months: [],
+    incomeData: [],
+    expenseData: [],
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,108 +36,115 @@ export default function DashboardHome() {
     const unsubscribers = [];
 
     const updateDashboard = () => {
-      try {
-        let totalIncome = 0;
-        let totalExpenses = 0;
-        const monthlyIncome = Array(12).fill(0);
-        const monthlyExpenses = Array(12).fill(0);
+      const totalIncome = txData
+        .filter(tx => tx.data().transactionType === "Deposit")
+        .reduce((sum, tx) => sum + Number(tx.data().amount || 0), 0);
 
-        txData.forEach((doc) => {
-          const tx = doc.data();
-          const amount = Number(tx.amount) || 0;
-          const date = tx.date ? new Date(tx.date) : new Date();
-          const monthIndex = date.getMonth();
+      const totalExpenses = txData
+        .filter(tx => tx.data().transactionType === "Withdrawal")
+        .reduce((sum, tx) => sum + Number(tx.data().amount || 0), 0);
 
-          if (tx.transactionType === "Deposit") {
-            totalIncome += amount;
-            monthlyIncome[monthIndex] += amount;
-          } else if (tx.transactionType === "Withdrawal") {
-            totalExpenses += amount;
-            monthlyExpenses[monthIndex] += amount;
-          }
-        });
+      const monthlyIncome = Array(12).fill(0);
+      const monthlyExpenses = Array(12).fill(0);
 
-        const clients = clientData.length;
-        const pendingInvoices = pendingData.length;
-        const paidInvoices = paidData.length;
+      txData.forEach((doc) => {
+        const tx = doc.data();
+        const amount = Number(tx.amount || 0);
+        const monthIndex = tx.date ? new Date(tx.date).getMonth() : 0;
+        if (tx.transactionType === "Deposit") monthlyIncome[monthIndex] += amount;
+        if (tx.transactionType === "Withdrawal") monthlyExpenses[monthIndex] += amount;
+      });
 
-        const months = [
-          "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ];
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-        setDashboardData({
-          totalIncome,
-          totalExpenses,
-          clients,
-          pendingInvoices,
-          paidInvoices,
-          months,
-          incomeData: monthlyIncome,
-          expenseData: monthlyExpenses,
-        });
-        setLoading(false);
-      } catch (err) {
-        console.error("Error updating dashboard:", err);
-      }
+      setDashboardData({
+        totalIncome,
+        totalExpenses,
+        clients: clientData.length,
+        pendingInvoices: pendingData.length,
+        paidInvoices: paidData.length,
+        months,
+        incomeData: monthlyIncome,
+        expenseData: monthlyExpenses,
+      });
+
+      setLoading(false);
     };
 
-    // 🔹 Listen to Bank Transactions
-    const unsubTx = onSnapshot(collection(db, "bank_transactions"), (snapshot) => {
-      txData = snapshot.docs;
-      updateDashboard();
-    });
-    unsubscribers.push(unsubTx);
-
-    // 🔹 Listen to Clients
-    const unsubClients = onSnapshot(collection(db, "clients"), (snapshot) => {
-      clientData = snapshot.docs;
-      updateDashboard();
-    });
-    unsubscribers.push(unsubClients);
-
-    // 🔹 Listen to Pending Invoices
-    const unsubPending = onSnapshot(
-      query(collection(db, "invoices"), where("status", "==", "Unpaid")),
-      (snapshot) => {
-        pendingData = snapshot.docs;
+    // Listen to bank transactions
+    unsubscribers.push(
+      onSnapshot(collection(db, "bank_transactions"), (snapshot) => {
+        txData = snapshot.docs;
         updateDashboard();
-      }
+      })
     );
-    unsubscribers.push(unsubPending);
 
-    // 🔹 Listen to Paid Invoices
-    const unsubPaid = onSnapshot(
-      query(collection(db, "invoices"), where("status", "==", "Paid")),
-      (snapshot) => {
-        paidData = snapshot.docs;
+    // Listen to clients and their invoices
+    unsubscribers.push(
+      onSnapshot(collection(db, "clients"), (snapshot) => {
+        clientData = snapshot.docs;
+        pendingData = [];
+        paidData = [];
+
+        snapshot.docs.forEach((clientDoc) => {
+          const clientId = clientDoc.id;
+          const clientName = clientDoc.data().name || "";
+
+          // Pending invoices
+          const unpaidQuery = query(
+            collection(db, "clients", clientId, "invoices"),
+            where("Status", "==", "Unpaid")
+          );
+          unsubscribers.push(
+            onSnapshot(unpaidQuery, (invSnap) => {
+              pendingData = pendingData.filter(inv => inv.clientId !== clientId);
+              invSnap.forEach((inv) => {
+                pendingData.push({ id: inv.id, clientId, clientName, ...inv.data() });
+              });
+              updateDashboard();
+            })
+          );
+
+          // Paid invoices
+          const paidQuery = query(
+            collection(db, "clients", clientId, "invoices"),
+            where("Status", "==", "Paid")
+          );
+          unsubscribers.push(
+            onSnapshot(paidQuery, (invSnap) => {
+              paidData = paidData.filter(inv => inv.clientId !== clientId);
+              invSnap.forEach((inv) => {
+                paidData.push({ id: inv.id, clientId, clientName, ...inv.data() });
+              });
+              updateDashboard();
+            })
+          );
+        });
+
         updateDashboard();
-      }
+      })
     );
-    unsubscribers.push(unsubPaid);
 
-    // Cleanup listeners when component unmounts
     return () => unsubscribers.forEach((unsub) => unsub && unsub());
   }, []);
 
-  // 🔹 Chart Data
-  const data = {
-    labels: dashboardData?.months || [],
+  const chartData = {
+    labels: dashboardData.months,
     datasets: [
       {
         label: "Income",
-        data: dashboardData?.incomeData || [],
+        data: dashboardData.incomeData,
         backgroundColor: "rgba(75,192,192,0.6)",
       },
       {
         label: "Expenses",
-        data: dashboardData?.expenseData || [],
+        data: dashboardData.expenseData,
         backgroundColor: "rgba(255,99,132,0.6)",
       },
     ],
   };
 
-  const options = {
+  const chartOptions = {
     responsive: true,
     plugins: {
       legend: { position: "top" },
@@ -152,14 +163,13 @@ export default function DashboardHome() {
         </div>
       ) : (
         <>
-          {/* Summary Cards */}
           <Row className="g-4 mb-4">
             <Col md={3}>
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Total Income</Card.Title>
                   <h3 className="text-success">
-                    ${dashboardData?.totalIncome?.toLocaleString() || 0}
+                    ${dashboardData.totalIncome.toLocaleString()}
                   </h3>
                 </Card.Body>
               </Card>
@@ -170,7 +180,7 @@ export default function DashboardHome() {
                 <Card.Body>
                   <Card.Title>Total Expenses</Card.Title>
                   <h3 className="text-danger">
-                    ${dashboardData?.totalExpenses?.toLocaleString() || 0}
+                    ${dashboardData.totalExpenses.toLocaleString()}
                   </h3>
                 </Card.Body>
               </Card>
@@ -180,7 +190,7 @@ export default function DashboardHome() {
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Clients</Card.Title>
-                  <h3>{dashboardData?.clients || 0}</h3>
+                  <h3>{dashboardData.clients}</h3>
                 </Card.Body>
               </Card>
             </Col>
@@ -189,7 +199,7 @@ export default function DashboardHome() {
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Pending Invoices</Card.Title>
-                  <h3>{dashboardData?.pendingInvoices || 0}</h3>
+                  <h3>{dashboardData.pendingInvoices}</h3>
                 </Card.Body>
               </Card>
             </Col>
@@ -198,20 +208,18 @@ export default function DashboardHome() {
               <Card className="shadow-sm border-0">
                 <Card.Body>
                   <Card.Title>Paid Invoices</Card.Title>
-                  <h3>{dashboardData?.paidInvoices || 0}</h3>
+                  <h3>{dashboardData.paidInvoices}</h3>
                 </Card.Body>
               </Card>
             </Col>
           </Row>
 
-          {/* Chart Section */}
           <Card className="shadow-sm border-0 mb-4">
             <Card.Body>
-              <Bar data={data} options={options} />
+              <Bar data={chartData} options={chartOptions} />
             </Card.Body>
           </Card>
 
-          {/* Actions */}
           <Row className="g-3">
             <Col md={6}>
               <Button variant="primary" className="w-100 py-3">

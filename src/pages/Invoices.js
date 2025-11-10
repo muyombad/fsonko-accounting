@@ -224,41 +224,98 @@ const Invoices = () => {
   };
 
   // Generate PDF
+    // Generate Professional PDF Invoice
   const handleGeneratePDF = () => {
-    const docPDF = new jsPDF();
-
-    docPDF.addImage(companyLogo, "PNG", 10, 10, 25, 25);
-    docPDF.setFontSize(16);
-    docPDF.text(companyName, 40, 20);
-    docPDF.setFontSize(12);
-    docPDF.text("Invoice Document", 40, 28);
-
-    docPDF.setLineWidth(0.5);
-    docPDF.line(10, 35, 200, 35);
+    const docPDF = new jsPDF({ unit: "mm", format: "a4" });
 
     const { invoiceNumber, clientName, amount, date, Status, description } =
       formData;
 
-    docPDF.text(`Invoice Number: ${invoiceNumber || "N/A"}`, 14, 50);
-    docPDF.text(`Client: ${clientName || "N/A"}`, 14, 58);
-    docPDF.text(`Status: ${Status}`, 14, 66);
-    docPDF.text(`Date: ${formatDateTime(date)}`, 14, 74);
+    // 🏢 Company Info
+    docPDF.addImage(companyLogo, "PNG", 15, 10, 25, 25);
+    docPDF.setFont("helvetica", "bold");
+    docPDF.setFontSize(18);
+    docPDF.text(companyName, 45, 20);
 
+    docPDF.setFont("helvetica", "normal");
+    docPDF.setFontSize(10);
+    docPDF.text("Kampala, Uganda", 45, 26);
+    docPDF.text("Email: info@fsonkoaccounting.com", 45, 31);
+    docPDF.text("Tel: +256 700 000 000", 45, 36);
+
+    // Line separator
+    docPDF.setLineWidth(0.5);
+    docPDF.line(15, 42, 195, 42);
+
+    // 🧾 Invoice Header
+    docPDF.setFontSize(14);
+    docPDF.setFont("helvetica", "bold");
+    docPDF.text("INVOICE", 15, 50);
+    docPDF.setFontSize(10);
+    docPDF.setFont("helvetica", "normal");
+
+    docPDF.text(`Invoice Number: ${invoiceNumber || "N/A"}`, 140, 50);
+    docPDF.text(`Issue Date: ${formatDateTime(date)}`, 140, 56);
+    docPDF.text(`Status: ${Status}`, 140, 62);
+
+    // 👤 Client Info
+    docPDF.setFont("helvetica", "bold");
+    docPDF.text("Bill To:", 15, 60);
+    docPDF.setFont("helvetica", "normal");
+    docPDF.text(`${clientName || "N/A"}`, 15, 66);
+    docPDF.text("Address: Kampala, Uganda", 15, 71);
+
+    // 🧾 Invoice Table
     autoTable(docPDF, {
-      startY: 85,
+      startY: 80,
       head: [["Description", "Amount (UGX)"]],
       body: [[description || "—", Number(amount).toLocaleString()]],
+      theme: "grid",
+      styles: {
+        halign: "left",
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: [41, 128, 185], // Nice blue
+        textColor: 255,
+        fontSize: 11,
+      },
+      bodyStyles: {
+        fontSize: 10,
+      },
     });
 
+    // 💰 Totals
+    const finalY = docPDF.lastAutoTable.finalY + 10;
+    docPDF.setFont("helvetica", "bold");
+    docPDF.text("Total Amount:", 130, finalY);
+    docPDF.setFont("helvetica", "normal");
+    docPDF.text(`UGX ${Number(amount).toLocaleString()}`, 175, finalY, {
+      align: "right",
+    });
+
+    // 🕒 Footer
     docPDF.setFontSize(10);
+    docPDF.setTextColor(100);
     docPDF.text(
-      "Thank you for doing business with us!",
-      14,
-      docPDF.lastAutoTable.finalY + 10
+      "Thank you for choosing F Sonko Accounting.",
+      15,
+      finalY + 20
+    );
+    docPDF.text(
+      "Please make payment within 7 days from the invoice date.",
+      15,
+      finalY + 26
     );
 
+    // Signature line
+    docPDF.line(15, finalY + 40, 80, finalY + 40);
+    docPDF.text("Authorized Signature", 15, finalY + 45);
+
+    // 📄 Save
     docPDF.save(`Invoice_${invoiceNumber || clientName}.pdf`);
   };
+
 
   const filteredInvoices = invoices.filter(
     (inv) =>
@@ -267,20 +324,25 @@ const Invoices = () => {
   );
 
   const unpaidInvoices = invoices.filter((inv) => inv.Status === "Unpaid");
-  const totalAmount = filteredInvoices.reduce(
-    (sum, inv) => sum + Number(inv.amount || 0),
-    0
-  );
+  // Only sum unpaid invoices
+const totalAmount = filteredInvoices
+  .filter(inv => (inv.Status || "").toLowerCase() !== "paid")
+  .reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
+
 
   return (
     <div className="container mt-4">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h3 className="mb-0">Invoices</h3>
         <div className="d-flex align-items-center gap-3">
+          <h5 className="text-end mt-3">
+       Total (Unpaid Only): UGX {totalAmount.toLocaleString()}
+    </h5>
           <div
             style={{ position: "relative", cursor: "pointer" }}
             onClick={() => setShowUnpaidModal(true)}
           >
+            
             <FaBell size={24} color={unpaidInvoices.length > 0 ? "orange" : "gray"} />
             {unpaidInvoices.length > 0 && (
               <Badge
@@ -357,9 +419,10 @@ const Invoices = () => {
         </Table>
       )}
 
-      <h5 className="text-end mt-3">
-        Total: UGX {totalAmount.toLocaleString()}
-      </h5>
+       <h5 className="text-end mt-3">
+       Total (Unpaid Only): UGX {totalAmount.toLocaleString()}
+    </h5>
+
 
       {/* 🔹 Edit / Add Invoice Modal */}
       <Modal show={showModal} onHide={() => setShowModal(false)} centered>

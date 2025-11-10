@@ -28,6 +28,8 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "../assets/bg.png"; // optional - will be ignored if not present
+import { OverlayTrigger, Tooltip } from "react-bootstrap";
+
 
 const COMPANY_NAME = "F SONKO UGANDA LTD"; // change if needed
 
@@ -263,27 +265,118 @@ export default function Clients() {
   };
 
   const printInvoicePDF = (invoicePayload, client) => {
-    if (!client) return;
-    const doc = new jsPDF();
-    addPdfHeader(doc, `Invoice: ${invoicePayload.invoiceNumber}`);
+  if (!client) return;
 
-    doc.setFontSize(11);
-    doc.text(`Bill To: ${client.name} — ${client.company || "N/A"}`, 14, 54);
-    if (client.email) doc.text(`Email: ${client.email}`, 14, 60);
-    if (client.phone) doc.text(`Phone: ${client.phone}`, 14, 66);
-    doc.text(`Date: ${formatDateTime(invoicePayload.createdAt || invoicePayload.date)}`, 14, 74);
+  const docPDF = new jsPDF({ unit: "mm", format: "a4" });
+  const companyName = "F Sonko Accounting";
+  const companyLogo = logo; // Assuming you have 'logo' imported or defined somewhere
 
-    autoTable(doc, {
-      head: [["Description", "Amount"]],
-      body: [[invoicePayload.description, Number(invoicePayload.amount).toLocaleString()]],
-      startY: 84,
-    });
+  const { invoiceNumber, amount, date, Status, description } = invoicePayload;
 
-    doc.text(`Total: ${Number(invoicePayload.amount).toLocaleString()}`, 14, doc.lastAutoTable.finalY + 10);
+  // 🏢 Company Info
+  try {
+    if (companyLogo) docPDF.addImage(companyLogo, "PNG", 15, 10, 25, 25);
+  } catch (e) {
+    console.warn("Logo load failed:", e);
+  }
 
-    const filename = `${client.name || "client"}_${invoicePayload.invoiceNumber}.pdf`;
-    doc.save(filename);
-  };
+  docPDF.setFont("helvetica", "bold");
+  docPDF.setFontSize(18);
+  docPDF.text(companyName, 45, 20);
+
+  docPDF.setFont("helvetica", "normal");
+  docPDF.setFontSize(10);
+  docPDF.text("Kampala, Uganda", 45, 26);
+  docPDF.text("Email: info@fsonkoaccounting.com", 45, 31);
+  docPDF.text("Tel: +256 700 000 000", 45, 36);
+
+  // Line separator
+  docPDF.setLineWidth(0.5);
+  docPDF.line(15, 42, 195, 42);
+
+  // 🧾 Invoice Header
+  docPDF.setFontSize(14);
+  docPDF.setFont("helvetica", "bold");
+  docPDF.text("INVOICE", 15, 50);
+
+  docPDF.setFontSize(10);
+  docPDF.setFont("helvetica", "normal");
+  docPDF.text(`Invoice Number: ${invoiceNumber || "N/A"}`, 140, 50);
+  docPDF.text(
+    `Issue Date: ${formatDateTime(date || invoicePayload.createdAt)}`,
+    140,
+    56
+  );
+  docPDF.text(`Status: ${Status || "Unpaid"}`, 140, 62);
+
+  // 👤 Client Info
+  docPDF.setFont("helvetica", "bold");
+  docPDF.text("Bill To:", 15, 60);
+  docPDF.setFont("helvetica", "normal");
+  docPDF.text(`${client.name || "N/A"}`, 15, 66);
+  docPDF.text(`${client.company || "Kampala, Uganda"}`, 15, 71);
+  if (client.email) docPDF.text(`Email: ${client.email}`, 15, 76);
+  if (client.phone) docPDF.text(`Tel: ${client.phone}`, 15, 81);
+
+  // 🧾 Invoice Table
+  autoTable(docPDF, {
+    startY: 90,
+    head: [["Description", "Amount (UGX)"]],
+    body: [
+      [
+        description || "—",
+        Number(amount).toLocaleString(),
+      ],
+    ],
+    theme: "grid",
+    styles: {
+      halign: "left",
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [41, 128, 185], // blue
+      textColor: 255,
+      fontSize: 11,
+    },
+    bodyStyles: {
+      fontSize: 10,
+    },
+  });
+
+  // 💰 Totals
+  const finalY = docPDF.lastAutoTable.finalY + 10;
+  docPDF.setFont("helvetica", "bold");
+  docPDF.text("Total Amount:", 130, finalY);
+  docPDF.setFont("helvetica", "normal");
+  docPDF.text(`UGX ${Number(amount).toLocaleString()}`, 175, finalY, {
+    align: "right",
+  });
+
+  // 🕒 Footer
+  const now = new Date().toLocaleString();
+  docPDF.setFontSize(10);
+  docPDF.setTextColor(100);
+  docPDF.text(
+    "Thank you for choosing F Sonko Accounting.",
+    15,
+    finalY + 20
+  );
+  docPDF.text(
+    "Please make payment within 7 days from the invoice date.",
+    15,
+    finalY + 26
+  );
+  docPDF.text(`Generated on: ${now}`, 15, finalY + 32);
+
+  // Signature line
+  docPDF.line(15, finalY + 45, 80, finalY + 45);
+  docPDF.text("Authorized Signature", 15, finalY + 50);
+
+  // 📄 Save
+  docPDF.save(`Invoice_${invoiceNumber || client.name}.pdf`);
+};
+
+
 
   const downloadStatementPDF = () => {
     if (!selectedClient) return;
@@ -311,8 +404,12 @@ export default function Clients() {
       startY: 56,
     });
 
-    const total = filteredClientInvoices.reduce((s, x) => s + Number(x.amount || 0), 0);
-    doc.text(`Total: ${total.toLocaleString()}`, 14, doc.lastAutoTable.finalY + 10);
+    const total = filteredClientInvoices
+  .filter(x => (x.Status || x.status || "").toLowerCase() !== "paid")
+  .reduce((s, x) => s + Number(x.amount || 0), 0);
+
+    doc.text(`Total (Unpaid Only): ${total.toLocaleString()}`, 14, doc.lastAutoTable.finalY + 10);
+
     doc.save(`${selectedClient.name}_statement.pdf`);
   };
 
@@ -493,7 +590,26 @@ export default function Clients() {
             </Form.Group>
 
             <div className="d-flex align-items-end ms-auto">
-              <Button variant="outline-secondary" onClick={downloadStatementPDF}>Download PDF</Button>
+              <OverlayTrigger
+  placement="top"
+  overlay={
+    (!dateFrom || !dateTo)
+      ? <Tooltip>Please select both dates first</Tooltip>
+      : <></>
+  }
+>
+  <span className="d-inline-block">
+    <Button
+      variant="outline-secondary"
+      onClick={downloadStatementPDF}
+      disabled={!dateFrom || !dateTo}
+      style={!dateFrom || !dateTo ? { pointerEvents: "none" } : {}}
+    >
+      Download PDF
+    </Button>
+  </span>
+</OverlayTrigger>
+
             </div>
           </Form>
 
@@ -527,9 +643,16 @@ export default function Clients() {
                   </tr>
                 ))}
                 <tr className="fw-bold">
-                  <td colSpan="3">Total</td>
-                  <td colSpan="3">{Number(filteredClientInvoices.reduce((s, x) => s + Number(x.amount || 0), 0)).toLocaleString()}</td>
-                </tr>
+  <td colSpan="3">Total (Unpaid Only)</td>
+  <td colSpan="3">
+    {Number(
+      filteredClientInvoices
+        .filter(x => (x.Status || x.status || "").toLowerCase() !== "paid")
+        .reduce((s, x) => s + Number(x.amount || 0), 0)
+    ).toLocaleString()}
+  </td>
+</tr>
+
               </tbody>
             </Table>
           )}
