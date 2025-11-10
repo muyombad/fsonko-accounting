@@ -1,3 +1,4 @@
+// src/services/invoiceService.js
 import { db } from "../firebaseConfig";
 import {
   collection,
@@ -10,90 +11,59 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import { recordInvoiceInLedgers } from "./ledgerService";
 
+const invoicesRef = collection(db, "invoices");
 
-const collectionName = "invoices";
-
-// Generate monthly invoice number: INV-YYYY-MM-001
-const generateInvoiceNumber = async () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const prefix = `INV-${year}-${month}-`;
-
-  try {
-    const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
-    if (querySnapshot.empty) return `${prefix}001`;
-
-    const latest = querySnapshot.docs[0].data().invoiceNumber;
-    if (!latest.startsWith(prefix)) return `${prefix}001`;
-
-    const lastNumber = parseInt(latest.split("-")[3] || "0");
-    const nextNumber = String(lastNumber + 1).padStart(3, "0");
-    return `${prefix}${nextNumber}`;
-  } catch (error) {
-    console.error("Error generating invoice number:", error);
-    return `${prefix}${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
-  }
-};
-
+// ✅ Get all invoices
 export const getAllInvoices = async () => {
   try {
-    const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
-    const data = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    return { success: true, data };
+    const q = query(invoicesRef, orderBy("createdAt", "desc"));
+    const snapshot = await getDocs(q);
+    const invoices = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return { success: true, data: invoices };
   } catch (error) {
+    console.error("getAllInvoices error:", error);
     return { success: false, error: error.message };
   }
 };
 
-export const addInvoice = async (invoiceData) => {
+// ✅ Add new invoice
+export const addInvoice = async (invoice) => {
   try {
-    // 1️⃣ Generate unique invoice number
-    const invoiceNumber = await generateInvoiceNumber();
-
-    // 2️⃣ Add invoice to Firestore
-    const docRef = await addDoc(collection(db, collectionName), {
-      ...invoiceData,
-      invoiceNumber,
-      status: "Unpaid",
+    const payload = {
+      ...invoice,
+      status: invoice.status || "Unpaid",
       createdAt: serverTimestamp(),
-    });
-
-    // 3️⃣ Auto-update ledgers
-    await recordInvoiceInLedgers({
-      id: docRef.id,
-      ...invoiceData,
-      invoiceNumber,
-    });
-
-    // 4️⃣ Return success
+      updatedAt: serverTimestamp(),
+    };
+    const docRef = await addDoc(invoicesRef, payload);
     return { success: true, id: docRef.id };
   } catch (error) {
-    console.error("Error adding invoice:", error.message);
+    console.error("addInvoice error:", error);
     return { success: false, error: error.message };
   }
 };
 
-export const updateInvoice = async (id, updatedData) => {
+// ✅ Update invoice
+export const updateInvoice = async (invoiceId, updates) => {
   try {
-    const docRef = doc(db, collectionName, id);
-    await updateDoc(docRef, updatedData);
+    const invoiceDoc = doc(db, "invoices", invoiceId);
+    await updateDoc(invoiceDoc, { ...updates, updatedAt: serverTimestamp() });
     return { success: true };
   } catch (error) {
+    console.error("updateInvoice error:", error);
     return { success: false, error: error.message };
   }
 };
 
-export const deleteInvoice = async (id) => {
+// ✅ Delete invoice
+export const deleteInvoice = async (invoiceId) => {
   try {
-    const docRef = doc(db, collectionName, id);
-    await deleteDoc(docRef);
+    const invoiceDoc = doc(db, "invoices", invoiceId);
+    await deleteDoc(invoiceDoc);
     return { success: true };
   } catch (error) {
+    console.error("deleteInvoice error:", error);
     return { success: false, error: error.message };
   }
 };

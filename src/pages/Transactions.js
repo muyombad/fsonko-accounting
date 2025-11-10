@@ -10,6 +10,12 @@ import {
 } from "react-bootstrap";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { auth } from "../firebaseConfig";
+// --- add this import at the top ---
+import companyLogo from "../assets/bg.png";
+
+
+
 
 import { getAllTransactions, addTransaction } from "../services/transactionService";
 
@@ -92,10 +98,13 @@ const Expenses = () => {
     }
 
     setSavingExpense(true); // 🌀 Start spinner
+    
+    const currentUserName = auth.currentUser?.displayName || auth.currentUser?.email;
 
     const result = await addTransaction({
       ...expenseForm,
       type: "Expense",
+      createdBy: currentUserName,
     });
 
     if (result.success) {
@@ -144,140 +153,163 @@ const Expenses = () => {
       })
   : [];
 
-  // handle manster report
-      const handleDownloadMasterReport = () => {
+  // 📄 MASTER REPORT (with logo + company name)
+const handleDownloadMasterReport = async () => {
+  if (!masterDateFrom || !masterDateTo) {
+    alert("⚠️ Please select both 'From' and 'To' dates before downloading the report.");
+    return;
+  }
+
   const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text("Master Expense Report (All Accounts)", 14, 15);
-  doc.setFontSize(11);
+  const logo = new Image();
+  logo.src = companyLogo;
 
-  const from = masterDateFrom ? new Date(masterDateFrom) : null;
-  const to = masterDateTo ? new Date(masterDateTo) : null;
-  const rangeText = `${from ? from.toLocaleString() : "Start"} → ${
-    to ? to.toLocaleString() : "Present"
-  }`;
-  doc.text(`Period: ${rangeText}`, 14, 23);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 30);
+  await new Promise((resolve) => {
+    logo.onload = () => {
+      doc.addImage(logo, "PNG", 14, 10, 25, 25); // (x, y, width, height)
+      doc.setFontSize(18);
+      doc.text("F SONKO UGANDA LTD", 45, 20);
+      doc.setFontSize(14);
+      doc.text("Master Expense Report (All Accounts)", 14, 42);
+      doc.setFontSize(11);
 
-  let startY = 38;
-  let grandTotalFiltered = 0;
+      const from = new Date(masterDateFrom);
+      const to = new Date(masterDateTo);
+      const rangeText = `${from.toLocaleString()} → ${to.toLocaleString()}`;
+      doc.text(`Period: ${rangeText}`, 14, 50);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 57);
 
-  accounts.forEach((acc, index) => {
-    const accExpenses = expenses.filter((e) => {
-      if (e.account !== acc) return false;
-      const date = e.createdAt
-        ? new Date(e.createdAt.seconds * 1000)
-        : new Date(e.date);
-      if (from && date < from) return false;
-      if (to && date > to) return false;
-      return true;
-    });
+      let startY = 65;
+      let grandTotalFiltered = 0;
 
-    if (accExpenses.length === 0) return;
+      accounts.forEach((acc, index) => {
+        const accExpenses = expenses.filter((e) => {
+          if (e.account !== acc) return false;
+          const date = e.createdAt
+            ? new Date(e.createdAt.seconds * 1000)
+            : new Date(e.date);
+          return date >= from && date <= to;
+        });
 
-    const tableData = accExpenses.map((e, i) => [
-      i + 1,
-      e.description,
-      `$${Number(e.amount).toLocaleString()}`,
-      e.createdAt
-        ? new Date(e.createdAt.seconds * 1000).toLocaleString()
-        : "—",
-    ]);
+        if (accExpenses.length === 0) return;
 
-    autoTable(doc, {
-      head: [[`${index + 1}. ${acc}`, "", "", ""]],
-      startY,
-    });
+        const tableData = accExpenses.map((e, i) => [
+          i + 1,
+          e.description,
+          `$${Number(e.amount).toLocaleString()}`,
+          e.createdBy || "—",
+          e.createdAt
+            ? new Date(e.createdAt.seconds * 1000).toLocaleString()
+            : "—",
+        ]);
 
-    autoTable(doc, {
-      head: [["#", "Description", "Amount", "Date & Time"]],
-      body: tableData,
-      startY: doc.lastAutoTable.finalY + 2,
-    });
+        autoTable(doc, {
+          head: [[`${index + 1}. ${acc}`, "", "", ""]],
+          startY,
+        });
 
-    const total = accExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-    doc.text(
-      `Subtotal (${acc}): $${total.toLocaleString()}`,
-      14,
-      doc.lastAutoTable.finalY + 8
-    );
-    grandTotalFiltered += total;
-    startY = doc.lastAutoTable.finalY + 16;
+        autoTable(doc, {
+          head: [["#", "Description", "Amount", "Entered By", "Date & Time"]],
+          body: tableData,
+          startY: doc.lastAutoTable.finalY + 2,
+        });
+
+        const total = accExpenses.reduce(
+          (sum, e) => sum + Number(e.amount || 0),
+          0
+        );
+        doc.text(
+          `Subtotal (${acc}): $${total.toLocaleString()}`,
+          14,
+          doc.lastAutoTable.finalY + 8
+        );
+        grandTotalFiltered += total;
+        startY = doc.lastAutoTable.finalY + 16;
+      });
+
+      doc.setFontSize(13);
+      doc.text(
+        `Grand Total (Filtered): $${grandTotalFiltered.toLocaleString()}`,
+        14,
+        startY + 4
+      );
+
+      doc.save(`Master_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+      resolve();
+    };
   });
-
-  doc.setFontSize(13);
-  doc.text(
-    `Grand Total (Filtered): $${grandTotalFiltered.toLocaleString()}`,
-    14,
-    startY + 4
-  );
-
-  doc.save(`Master_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
 };
 
-
-
-/// handle PDF Download////////////////////////
-    const handleDownloadPDF = () => {
+// 📄 INDIVIDUAL ACCOUNT STATEMENT (with logo + company name)
+const handleDownloadPDF = async () => {
   if (!selectedAccount) return;
 
+  if (!dateFrom || !dateTo) {
+    alert("⚠️ Please select both 'From' and 'To' dates before downloading the report.");
+    return;
+  }
+
   const doc = new jsPDF();
-  const accountName = selectedAccount;
-  const from = dateFrom || "Start";
-  const to = dateTo || "Present";
+  const logo = new Image();
+  logo.src = companyLogo;
 
-  doc.setFontSize(14);
-  doc.text(`Expense Statement - ${accountName}`, 14, 15);
-  doc.setFontSize(11);
-  doc.text(`Period: ${from} to ${to}`, 14, 23);
+  await new Promise((resolve) => {
+    logo.onload = () => {
+      doc.addImage(logo, "PNG", 14, 10, 25, 25);
+      doc.setFontSize(18);
+      doc.text("Your Company Name", 45, 20);
+      doc.setFontSize(14);
+      doc.text(`Expense Statement - ${selectedAccount}`, 14, 42);
+      doc.setFontSize(11);
+      doc.text(
+        `Period: ${new Date(dateFrom).toLocaleString()} → ${new Date(
+          dateTo
+        ).toLocaleString()}`,
+        14,
+        50
+      );
 
-  const filtered = accountExpenses.filter((e) => {
-    const expenseDate = new Date(
-      e.createdAt?.seconds ? e.createdAt.seconds * 1000 : e.createdAt
-    );
-    return (
-      (!dateFrom || expenseDate >= new Date(dateFrom)) &&
-      (!dateTo || expenseDate <= new Date(dateTo))
-    );
+      const filtered = accountExpenses.filter((e) => {
+        const expenseDate = new Date(
+          e.createdAt?.seconds ? e.createdAt.seconds * 1000 : e.createdAt
+        );
+        return expenseDate >= new Date(dateFrom) && expenseDate <= new Date(dateTo);
+      });
+
+      if (filtered.length === 0) {
+        alert("⚠️ No expenses found for this date range.");
+        return resolve();
+      }
+
+      const tableData = filtered.map((e, i) => [
+        i + 1,
+        e.description,
+        `$${Number(e.amount).toLocaleString()}`,
+        e.createdBy || "—",
+        e.createdAt
+          ? new Date(e.createdAt.seconds * 1000).toLocaleString()
+          : "—",
+      ]);
+
+      autoTable(doc, {
+        head: [["#", "Description", "Amount", "Entered By", "Date & Time"]],
+        body: tableData,
+        startY: 60,
+      });
+
+      const total = filtered.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      doc.text(
+        `Total: $${total.toLocaleString()}`,
+        14,
+        doc.lastAutoTable.finalY + 10
+      );
+
+      doc.save(`${selectedAccount}_statement.pdf`);
+      resolve();
+    };
   });
-
-  // 🕒 Format date and time neatly
-  const formatDateTime = (timestamp) => {
-    const date = new Date(
-      timestamp?.seconds ? timestamp.seconds * 1000 : timestamp
-    );
-    return date.toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
-
-  const tableData = filtered.map((e, i) => [
-    i + 1,
-    e.description,
-    `$${Number(e.amount).toLocaleString()}`,
-    e.createdAt ? formatDateTime(e.createdAt) : "—",
-  ]);
-
-  autoTable(doc, {
-    head: [["#", "Description", "Amount", "Date & Time"]],
-    body: tableData,
-    startY: 30,
-  });
-
-  const total = filtered.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  doc.text(
-    `Total: $${total.toLocaleString()}`,
-    14,
-    doc.lastAutoTable.finalY + 10
-  );
-
-  doc.save(`${accountName}_statement.pdf`);
 };
+
 
 
 
@@ -502,7 +534,10 @@ const Expenses = () => {
   </Form.Group>
 
   <div className="d-flex align-items-end">
-    <Button variant="outline-secondary" onClick={handleDownloadPDF}>
+    <Button variant="outline-secondary" 
+    // disabled={!dateFrom || !dateTo} 
+    onClick={handleDownloadPDF}>
+      
       Download PDF
     </Button>
   </div>
@@ -518,6 +553,7 @@ const Expenses = () => {
                   <th>#</th>
                   <th>Description</th>
                   <th>Amount</th>
+                  <th>Entered By</th>
                   <th>Date</th>
                 </tr>
               </thead>
@@ -532,6 +568,7 @@ const Expenses = () => {
         <td>{i + 1}</td>
         <td>{e.description}</td>
         <td>${Number(e.amount).toLocaleString()}</td>
+        <td>{e.createdBy || "—"}</td>
         <td>{formattedDateTime}</td>
       </tr>
     );
@@ -585,20 +622,22 @@ const Expenses = () => {
       </Form.Group>
     </Form>
   </Modal.Body>
-  <Modal.Footer>
-    <Button variant="secondary" onClick={() => setShowMasterModal(false)}>
-      Cancel
-    </Button>
-    <Button
-      variant="success"
-      onClick={() => {
-        handleDownloadMasterReport();
-        setShowMasterModal(false);
-      }}
-    >
-      Download PDF
-    </Button>
-  </Modal.Footer>
+    <Modal.Footer>
+  <Button variant="secondary" onClick={() => setShowMasterModal(false)}>
+    Cancel
+  </Button>
+  <Button
+    variant="success"
+    //disabled={!masterDateFrom || !masterDateTo}
+    onClick={() => {
+      handleDownloadMasterReport();
+      setShowMasterModal(false);
+    }}
+  >
+    Download PDF
+  </Button>
+</Modal.Footer>
+
 </Modal>
 
     </div>
