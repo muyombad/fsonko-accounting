@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Container, Row, Col, Card, Button, Spinner } from "react-bootstrap";
+import { Container, Row, Col, Card, Button, Spinner, Form } from "react-bootstrap";
 import { Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -27,6 +27,8 @@ export default function DashboardHome() {
     expenseData: [],
   });
   const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   useEffect(() => {
     let txData = [];
@@ -36,18 +38,29 @@ export default function DashboardHome() {
     const unsubscribers = [];
 
     const updateDashboard = () => {
-      const totalIncome = txData
-        .filter(tx => tx.data().transactionType === "Deposit")
+      // Filter transactions by date range (if both dates selected)
+      let filteredTx = txData;
+      if (fromDate && toDate) {
+        const from = new Date(fromDate);
+        const to = new Date(toDate);
+        filteredTx = txData.filter((doc) => {
+          const txDate = doc.data().date ? new Date(doc.data().date) : null;
+          return txDate && txDate >= from && txDate <= to;
+        });
+      }
+
+      const totalIncome = filteredTx
+        .filter((tx) => tx.data().transactionType === "Deposit")
         .reduce((sum, tx) => sum + Number(tx.data().amount || 0), 0);
 
-      const totalExpenses = txData
-        .filter(tx => tx.data().transactionType === "Withdrawal")
+      const totalExpenses = filteredTx
+        .filter((tx) => tx.data().transactionType === "Withdrawal")
         .reduce((sum, tx) => sum + Number(tx.data().amount || 0), 0);
 
       const monthlyIncome = Array(12).fill(0);
       const monthlyExpenses = Array(12).fill(0);
 
-      txData.forEach((doc) => {
+      filteredTx.forEach((doc) => {
         const tx = doc.data();
         const amount = Number(tx.amount || 0);
         const monthIndex = tx.date ? new Date(tx.date).getMonth() : 0;
@@ -55,7 +68,10 @@ export default function DashboardHome() {
         if (tx.transactionType === "Withdrawal") monthlyExpenses[monthIndex] += amount;
       });
 
-      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+      ];
 
       setDashboardData({
         totalIncome,
@@ -97,7 +113,7 @@ export default function DashboardHome() {
           );
           unsubscribers.push(
             onSnapshot(unpaidQuery, (invSnap) => {
-              pendingData = pendingData.filter(inv => inv.clientId !== clientId);
+              pendingData = pendingData.filter((inv) => inv.clientId !== clientId);
               invSnap.forEach((inv) => {
                 pendingData.push({ id: inv.id, clientId, clientName, ...inv.data() });
               });
@@ -112,7 +128,7 @@ export default function DashboardHome() {
           );
           unsubscribers.push(
             onSnapshot(paidQuery, (invSnap) => {
-              paidData = paidData.filter(inv => inv.clientId !== clientId);
+              paidData = paidData.filter((inv) => inv.clientId !== clientId);
               invSnap.forEach((inv) => {
                 paidData.push({ id: inv.id, clientId, clientName, ...inv.data() });
               });
@@ -126,7 +142,7 @@ export default function DashboardHome() {
     );
 
     return () => unsubscribers.forEach((unsub) => unsub && unsub());
-  }, []);
+  }, [fromDate, toDate]); // re-run when date range changes
 
   const chartData = {
     labels: dashboardData.months,
@@ -156,6 +172,44 @@ export default function DashboardHome() {
     <Container fluid className="mt-4">
       <h2 className="mb-4">Welcome back, David 👋</h2>
 
+      {/* Date Filter Section */}
+      <Card className="shadow-sm border-0 mb-4 p-3">
+        <Row className="align-items-end g-3">
+          <Col md={4}>
+            <Form.Group controlId="fromDate">
+              <Form.Label>From Date</Form.Label>
+              <Form.Control
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+            </Form.Group>
+          </Col>
+          <Col md={4}>
+            <Form.Group controlId="toDate">
+              <Form.Label>To Date</Form.Label>
+              <Form.Control
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+            </Form.Group>
+          </Col>
+          <Col md={4}>
+            <Button
+              variant="secondary"
+              className="w-100 py-2"
+              onClick={() => {
+                setFromDate("");
+                setToDate("");
+              }}
+            >
+              Reset Filter
+            </Button>
+          </Col>
+        </Row>
+      </Card>
+
       {loading ? (
         <div className="text-center mt-5">
           <Spinner animation="border" variant="primary" />
@@ -163,6 +217,7 @@ export default function DashboardHome() {
         </div>
       ) : (
         <>
+          {/* Stats Section */}
           <Row className="g-4 mb-4">
             <Col md={3}>
               <Card className="shadow-sm border-0">
@@ -214,12 +269,14 @@ export default function DashboardHome() {
             </Col>
           </Row>
 
+          {/* Chart Section */}
           <Card className="shadow-sm border-0 mb-4">
             <Card.Body>
               <Bar data={chartData} options={chartOptions} />
             </Card.Body>
           </Card>
 
+          {/* Actions Section */}
           <Row className="g-3">
             <Col md={6}>
               <Button variant="primary" className="w-100 py-3">

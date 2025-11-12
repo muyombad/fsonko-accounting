@@ -346,7 +346,7 @@ export default function Clients() {
   // 💰 Totals
   const finalY = docPDF.lastAutoTable.finalY + 10;
   docPDF.setFont("helvetica", "bold");
-  docPDF.text("Total Amount:", 130, finalY);
+  docPDF.text("Total Amount:", 120, finalY);
   docPDF.setFont("helvetica", "normal");
   docPDF.text(`UGX ${Number(amount).toLocaleString()}`, 175, finalY, {
     align: "right",

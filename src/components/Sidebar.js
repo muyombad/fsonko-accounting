@@ -49,7 +49,7 @@ const Sidebar = () => {
           <li><Link to="/">🏠 {isOpen && "Dashboard"}</Link></li>
           <li><Link to="/transactions">💳 {isOpen && "Transactions"}</Link></li>
           <li><Link to="/clients">👥 {isOpen && "Clients"}</Link></li>
-          <li><Link to="/ledgers">📚 {isOpen && "Ledgers"}</Link></li>
+          <li><Link to="/ledgers">📚 {isOpen && "Suppliers"}</Link></li>
           <li><Link to="/inventory">📦 {isOpen && "Inventory"}</Link></li>
           <li><Link to="/bankcash">🏦 {isOpen && "Bank & Cash"}</Link></li>
           <li><Link to="/invoices">🧾 {isOpen && "Invoices"}</Link></li>
