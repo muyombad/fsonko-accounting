@@ -12,7 +12,7 @@ import {
   Legend,
 } from "chart.js";
 import { db } from "../firebaseConfig";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -25,20 +25,20 @@ export default function Reports() {
   const [filteredTransactions, setFilteredTransactions] = useState([]);
   const [filteredInvoices, setFilteredInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const reportRef = useRef(); // 👈 Reference for capturing the report
+  const reportRef = useRef();
 
-  // 🔹 Fetch transactions + paid invoices
+  // 🔹 Fetch data
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 1️⃣ Fetch all transactions
+        // Fetch all transactions
         const txnSnap = await getDocs(collection(db, "transactions"));
         const txnData = txnSnap.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
 
-        // 2️⃣ Fetch all paid invoices from clients
+        // Fetch all paid invoices from clients
         const clientsSnap = await getDocs(collection(db, "clients"));
         let allPaid = [];
 
@@ -46,16 +46,18 @@ export default function Reports() {
           const clientId = clientDoc.id;
           const clientName = clientDoc.data().name || "Unknown Client";
           const invRef = collection(db, "clients", clientId, "invoices");
-          const invQuery = query(invRef, where("Status", "==", "Paid"));
-          const invSnap = await getDocs(invQuery);
+          const invSnap = await getDocs(invRef);
 
           invSnap.forEach((inv) => {
-            allPaid.push({
-              id: inv.id,
-              clientId,
-              clientName,
-              ...inv.data(),
-            });
+            const data = inv.data();
+            if ((data.Status || data.status) === "Paid") {
+              allPaid.push({
+                id: inv.id,
+                clientId,
+                clientName,
+                ...data,
+              });
+            }
           });
         }
 
@@ -107,8 +109,28 @@ export default function Reports() {
     0
   );
 
+  // ✅ Supplier Paid Amount (from transactions)
+  const totalPaidToSuppliers = filteredTransactions
+    .filter((t) => {
+      const type = t.type?.toLowerCase();
+      const status = (t.status || t.Status || "").toLowerCase();
+      return (
+        (type === "supplier" || type === "suppliers") &&
+        status === "paid"
+      );
+    })
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
+  // ✅ Total Expenses = all expense-type + paid supplier transactions
   const expenses = filteredTransactions
-    .filter((t) => (t.type || "").toLowerCase() === "expense")
+    .filter((t) => {
+      const type = (t.type || "").toLowerCase();
+      const status = (t.status || t.Status || "").toLowerCase();
+      return (
+        type === "expense" ||
+        ((type === "supplier" || type === "suppliers") && status === "paid")
+      );
+    })
     .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
 
   const totalIncome = incomeFromInvoices;
@@ -119,6 +141,7 @@ export default function Reports() {
   const incomeByMonth = Array(12).fill(0);
   const expensesByMonth = Array(12).fill(0);
 
+  // Income per month (paid invoices)
   filteredInvoices.forEach((inv) => {
     if (!inv.amount) return;
     const dateValue = inv.date?.toDate ? inv.date.toDate() : new Date(inv.date);
@@ -126,15 +149,19 @@ export default function Reports() {
     incomeByMonth[monthIndex] += parseFloat(inv.amount);
   });
 
+  // Expenses per month (only paid suppliers or expense type)
   filteredTransactions.forEach((t) => {
     if (!t.amount) return;
-    const dateValue = t.createdAt?.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
-    const monthIndex = dateValue.getMonth();
-    if ((t.type || "").toLowerCase() === "expense") {
+    const type = (t.type || "").toLowerCase();
+    const status = (t.status || t.Status || "").toLowerCase();
+    if (type === "expense" || (type === "supplier" && status === "paid")) {
+      const dateValue = t.createdAt?.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+      const monthIndex = dateValue.getMonth();
       expensesByMonth[monthIndex] += parseFloat(t.amount);
     }
   });
 
+  // 🔹 Chart Data
   const barData = {
     labels: months,
     datasets: [
@@ -144,7 +171,7 @@ export default function Reports() {
         backgroundColor: "rgba(54, 162, 235, 0.6)",
       },
       {
-        label: "Expenses (Transactions)",
+        label: `Expenses (Including Supplier P.. ${totalPaidToSuppliers} ) `,
         data: expensesByMonth,
         backgroundColor: "rgba(255, 99, 132, 0.6)",
       },
@@ -162,16 +189,21 @@ export default function Reports() {
   });
 
   const expenseTotals = {};
-  filteredTransactions.forEach((t) => {
-    const type = (t.type || "").toLowerCase();
-    if (type === "expense") {
-      const category = t.account || t.description?.split(" ")[0] || "Other";
-      const amount = parseFloat(t.amount || 0);
-      if (!isNaN(amount)) {
-        expenseTotals[category] = (expenseTotals[category] || 0) + amount;
-      }
+filteredTransactions.forEach((t) => {
+  const type = (t.type || "").toLowerCase();
+  const status = (t.status || t.Status || "").toLowerCase();
+
+  // Include all "expense" types, and only "supplier" with status = "paid"
+  if (type === "expense" || (type === "supplier" && status === "paid")) {
+    const category =
+      t.account || t.supplier || t.description?.split(" ")[0] || "Other";
+    const amount = parseFloat(t.amount || 0);
+    if (!isNaN(amount)) {
+      expenseTotals[category] = (expenseTotals[category] || 0) + amount;
     }
-  });
+  }
+});
+
 
   const sortedIncome = Object.entries(incomeTotals)
     .sort((a, b) => b[1] - a[1])
@@ -226,10 +258,7 @@ export default function Reports() {
   // 🔹 Download PDF
   const handleDownloadPDF = async () => {
     const input = reportRef.current;
-    const canvas = await html2canvas(input, {
-      scale: 2,
-      useCORS: true,
-    });
+    const canvas = await html2canvas(input, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
     const imgProps = pdf.getImageProperties(imgData);
@@ -262,7 +291,7 @@ export default function Reports() {
             </Button>
           </Form>
           <Button variant="success" onClick={handleDownloadPDF}>
-             Download
+            Download
           </Button>
         </Col>
       </Row>
@@ -280,23 +309,26 @@ export default function Reports() {
               <Card className="shadow-sm border-success border-start border-4">
                 <Card.Body>
                   <Card.Title>Total Income</Card.Title>
-                  <h3 className="text-success">
-                    ${totalIncome.toLocaleString()}
-                  </h3>
+                  <h3 className="text-success">${totalIncome.toLocaleString()}</h3>
                   <p className="text-muted small">
                     Includes ${incomeFromInvoices.toLocaleString()} from Paid Invoices
                   </p>
                 </Card.Body>
               </Card>
             </Col>
+
             <Col md={4}>
               <Card className="shadow-sm border-danger border-start border-4">
                 <Card.Body>
                   <Card.Title>Total Expenses</Card.Title>
                   <h3 className="text-danger">${expenses.toLocaleString()}</h3>
+                  <p className="text-muted small">
+                    Includes ${totalPaidToSuppliers.toLocaleString()} paid to suppliers
+                  </p>
                 </Card.Body>
               </Card>
             </Col>
+
             <Col md={4}>
               <Card className="shadow-sm border-primary border-start border-4">
                 <Card.Body>

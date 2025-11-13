@@ -155,7 +155,7 @@ const handlePayInvoice = async (invoiceId) => {
     const result = await addTransaction({
       ...invoiceForm,
       type: "Supplier",
-      Status: "Not Paid",
+      status: "Not Paid",
       createdBy: currentUser,
     });
 
