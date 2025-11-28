@@ -51,6 +51,8 @@ const Sidebar = () => {
           <li><Link to="/clients">👥 {isOpen && "Clients"}</Link></li>
           <li><Link to="/ledgers">📚 {isOpen && "Suppliers"}</Link></li>
           <li><Link to="/inventory">📦 {isOpen && "Inventory"}</Link></li>
+          <li><Link to="/production">🏭 {isOpen && "Production"}</Link></li>
+          <li><Link to="/exports">🚢 {isOpen && "Exports"}</Link></li>
           <li><Link to="/bankcash">🏦 {isOpen && "Bank & Cash"}</Link></li>
           <li><Link to="/invoices">🧾 {isOpen && "Invoices"}</Link></li>
           <li><Link to="/reports">📊 {isOpen && "Reports"}</Link></li>

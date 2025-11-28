@@ -1,192 +1,188 @@
-import { db } from "../firebaseConfig";
+// src/services/bankCashService.js
 import {
   collection,
   addDoc,
-  getDocs,
   updateDoc,
   deleteDoc,
+  getDocs,
+  getDoc,
   doc,
   query,
   where,
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
-import { recordTransactionInLedgers } from "./ledgerService";
+import { db } from "../firebaseConfig";
 
+// ----------------------------
+// GET ALL BANKS
+// ----------------------------
+export const getBanks = async () => {
+  const snap = await getDocs(collection(db, "banks"));
+  const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return { data };
+};
 
-const transactionsRef = collection(db, "bank_transactions");
+// ----------------------------
+// ADD BANK
+// ----------------------------
+export const addBank = async (bankData) => {
+  return await addDoc(collection(db, "banks"), {
+    ...bankData,
+    closingBalance: Number(bankData.openingBalance) || 0,
+    createdAt: serverTimestamp(),
+  });
+};
 
-// 🔹 Fetch all transactions for a specific account (index-free)
-const fetchAccountTransactions = async (accountName) => {
-  try {
-    const q = query(
-      transactionsRef,
-      where("accountName", "==", accountName),
-      orderBy("date", "asc")
-    );
-    const snap = await getDocs(q);
-    const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+// ----------------------------
+// UPDATE BANK
+// ----------------------------
+export const updateBank = async (id, data) => {
+  return await updateDoc(doc(db, "banks", id), data);
+};
 
-    // Sort locally to ensure consistent order
-    docs.sort((a, b) => {
-      const da = new Date(a.date || 0);
-      const db = new Date(b.date || 0);
-      if (da.getTime() === db.getTime()) {
-        return (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0);
-      }
-      return da - db;
-    });
+// ----------------------------
+// DELETE BANK
+// ----------------------------
+export const deleteBank = async (id) => {
+  return await deleteDoc(doc(db, "banks", id));
+};
 
-    return docs;
-  } catch (error) {
-    console.error("fetchAccountTransactions error:", error);
-    return [];
+// ----------------------------
+// INTERNAL — UPDATE BALANCE
+// ----------------------------
+const updateBankBalance = async (bankId, amountChange) => {
+  const bankRef = doc(db, "banks", bankId);
+  const bankSnap = await getDoc(bankRef);
+
+  if (!bankSnap.exists()) throw new Error("Bank not found!");
+
+  const current = Number(bankSnap.data().closingBalance || 0);
+  const updated = current + amountChange;
+
+  await updateDoc(bankRef, {
+    closingBalance: updated,
+  });
+};
+
+// ----------------------------
+// GET ALL TRANSACTIONS FOR 1 BANK
+// ----------------------------
+export const getBankTransactions = async (bankId) => {
+  const q = query(
+    collection(db, "bankTransactions"),
+    where("bankId", "==", bankId),
+    orderBy("createdAt", "asc")
+  );
+
+  const snap = await getDocs(q);
+  const createdAt = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return { createdAt };
+};
+
+// ----------------------------
+// GET TRANSACTIONS BY DATE RANGE
+// ----------------------------
+export const getBankTransactionsByDate = async (bankId, from, to) => {
+  const fromDate = new Date(from + "T00:00:00");
+  const toDate = new Date(to + "T23:59:59");
+
+  const q = query(
+    collection(db, "bankTransactions"),
+    where("bankId", "==", bankId),
+    where("date", ">=", fromDate),
+    where("date", "<=", toDate),
+    orderBy("date", "asc")
+  );
+
+  const snap = await getDocs(q);
+  const createdAt = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return { createdAt };
+};
+
+// ----------------------------
+// ADD TRANSACTION + UPDATE BALANCE
+// ----------------------------
+export const addBankTransaction = async (tx) => {
+  const amount = Number(tx.amount);
+
+  // SAVE TRANSACTION
+  await addDoc(collection(db, "bankTransactions"), {
+    ...tx,
+    amount,
+    createdAt: serverTimestamp(),
+  });
+
+  // HANDLE BALANCE
+  if (tx.transactionType === "Deposit") {
+    await updateBankBalance(tx.bankId, amount);
+  } else if (tx.transactionType === "Withdrawal") {
+    await updateBankBalance(tx.bankId, -amount);
+  } else if (tx.transactionType === "Transfer") {
+    await updateBankBalance(tx.bankId, -amount); // deduct from source
+    await updateBankBalance(tx.transferToBankId, amount); // add to target
   }
 };
 
-// 🔹 Recalculate running balances for an account
-const recalcAndSaveBalances = async (accountName) => {
-  try {
-    const txs = await fetchAccountTransactions(accountName);
-    let running = 0;
+// ----------------------------
+// UPDATE TRANSACTION (adjust bank balance)
+// ----------------------------
+export const updateTransaction = async (id, newTx) => {
+  const txRef = doc(db, "bankTransactions", id);
+  const oldSnap = await getDoc(txRef);
 
-    for (const t of txs) {
-      const amt = Number(t.amount) || 0;
-      if (t.transactionType === "Deposit") running += amt;
-      else if (t.transactionType === "Withdrawal") running -= amt;
+  if (!oldSnap.exists()) throw new Error("Transaction not found!");
 
-      const dRef = doc(db, "bank_transactions", t.id);
-      await updateDoc(dRef, { balanceAfter: running });
-    }
+  const oldTx = oldSnap.data();
+  const oldAmount = Number(oldTx.amount);
+  const newAmount = Number(newTx.amount);
 
-    return { success: true, balance: running };
-  } catch (error) {
-    console.error("recalcAndSaveBalances error:", error);
-    return { success: false, error };
+  // REVERSE OLD TRANSACTION EFFECT
+  if (oldTx.transactionType === "Deposit") {
+    await updateBankBalance(oldTx.bankId, -oldAmount);
+  } else if (oldTx.transactionType === "Withdrawal") {
+    await updateBankBalance(oldTx.bankId, oldAmount);
+  } else if (oldTx.transactionType === "Transfer") {
+    await updateBankBalance(oldTx.bankId, oldAmount);
+    await updateBankBalance(oldTx.transferToBankId, -oldAmount);
+  }
+
+  // UPDATE THE TRANSACTION DOCUMENT
+  await updateDoc(txRef, newTx);
+
+  // APPLY NEW TRANSACTION EFFECT
+  if (newTx.transactionType === "Deposit") {
+    await updateBankBalance(newTx.bankId, newAmount);
+  } else if (newTx.transactionType === "Withdrawal") {
+    await updateBankBalance(newTx.bankId, -newAmount);
+  } else if (newTx.transactionType === "Transfer") {
+    await updateBankBalance(newTx.bankId, -newAmount);
+    await updateBankBalance(newTx.transferToBankId, newAmount);
   }
 };
 
-// 🔹 Get all transactions (ordered by date, no composite index)
-export const getAllTransactions = async () => {
-  try {
-    const q = query(transactionsRef, orderBy("date", "desc"));
-    const snap = await getDocs(q);
-    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    // Sort locally by date descending
-    data.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    return { success: true, data };
-  } catch (error) {
-    console.error("getAllTransactions error:", error);
-    return { success: false, error };
-  }
-};
-
-// 🔹 Add a new transaction (handles Deposit / Withdrawal / Transfer)
-export const addTransaction = async (tx) => {
-  try {
-    const payload = {
-      accountName: tx.accountName,
-      transactionType: tx.transactionType,
-      amount: Number(tx.amount) || 0,
-      date: tx.date || new Date().toISOString().slice(0, 10),
-      description: tx.description || "",
-      createdAt: serverTimestamp(),
-    };
-
-    // 🟡 Handle transfer between accounts
-    if (tx.transactionType === "Transfer" && tx.transferToAccount) {
-      const withdrawPayload = {
-        ...payload,
-        transactionType: "Withdrawal",
-        description: payload.description
-          ? payload.description + " (transfer out)"
-          : "Transfer out",
-      };
-
-      const depositPayload = {
-        ...payload,
-        accountName: tx.transferToAccount,
-        transactionType: "Deposit",
-        description: payload.description
-          ? payload.description + " (transfer in)"
-          : "Transfer in",
-      };
-
-      // Save both sides of the transfer
-      const withdrawRef = await addDoc(transactionsRef, withdrawPayload);
-      const depositRef = await addDoc(transactionsRef, depositPayload);
-
-      // ✅ Update both ledgers automatically
-      await recordTransactionInLedgers({
-        id: withdrawRef.id,
-        ...withdrawPayload,
-      });
-      await recordTransactionInLedgers({
-        id: depositRef.id,
-        ...depositPayload,
-      });
-
-      // Recalculate both account balances
-      await recalcAndSaveBalances(tx.accountName);
-      await recalcAndSaveBalances(tx.transferToAccount);
-
-      return { success: true };
-    }
-
-    // 🟢 Regular deposit or withdrawal
-    const docRef = await addDoc(transactionsRef, payload);
-
-    // ✅ Update ledger
-    await recordTransactionInLedgers({
-      id: docRef.id,
-      ...payload,
-    });
-
-    // ✅ Recalculate account balance
-    await recalcAndSaveBalances(tx.accountName);
-
-    return { success: true, id: docRef.id };
-  } catch (error) {
-    console.error("addTransaction error:", error);
-    return { success: false, error: error.message };
-  }
-};
-// 🔹 Update existing transaction
-export const updateTransaction = async (id, updates) => {
-  try {
-    const dRef = doc(db, "bank_transactions", id);
-    await updateDoc(dRef, { ...updates });
-
-    if (updates.accountName) {
-      await recalcAndSaveBalances(updates.accountName);
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error("updateTransaction error:", error);
-    return { success: false, error };
-  }
-};
-
-// 🔹 Delete transaction and recalc balances
+// ----------------------------
+// DELETE TRANSACTION + REVERSE BALANCE
+// ----------------------------
 export const deleteTransaction = async (id) => {
-  try {
-    const allSnap = await getDocs(query(transactionsRef, orderBy("date", "desc")));
-    const docToDelete = allSnap.docs.find((d) => d.id === id);
+  const txRef = doc(db, "bankTransactions", id);
+  const snap = await getDoc(txRef);
 
-    if (docToDelete) {
-      const acct = docToDelete.data().accountName;
-      const dRef = doc(db, "bank_transactions", id);
-      await deleteDoc(dRef);
-      await recalcAndSaveBalances(acct);
-      return { success: true };
-    } else {
-      return { success: false, error: "Transaction not found" };
-    }
-  } catch (error) {
-    console.error("deleteTransaction error:", error);
-    return { success: false, error };
+  if (!snap.exists()) return;
+
+  const tx = snap.data();
+  const amount = Number(tx.amount);
+
+  // REVERSE
+  if (tx.transactionType === "Deposit") {
+    await updateBankBalance(tx.bankId, -amount);
+  } else if (tx.transactionType === "Withdrawal") {
+    await updateBankBalance(tx.bankId, amount);
+  } else if (tx.transactionType === "Transfer") {
+    await updateBankBalance(tx.bankId, amount);
+    await updateBankBalance(tx.transferToBankId, -amount);
   }
+
+  // DELETE TRANSACTION
+  await deleteDoc(txRef);
 };

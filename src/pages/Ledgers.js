@@ -9,9 +9,20 @@ import {
   Alert,
   Card,
 } from "react-bootstrap";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  query,
+  orderBy,
+  getDoc,
+  serverTimestamp
+} from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getAllTransactions, addTransaction } from "../services/transactionService";
+import { getAllTransactions, addTransaction, confirmPendingStock, getPendingStock, deletePendingStock, deleteTransaction } from "../services/transactionService";
 import { auth } from "../firebaseConfig";
 import logo from "../assets/bg.png"; // 🖼️ Company logo
 import { FaBell } from "react-icons/fa";
@@ -19,7 +30,7 @@ import { Badge } from "react-bootstrap";
 
 
 
-import { doc, updateDoc } from "firebase/firestore";
+import {  updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 
 
@@ -64,6 +75,9 @@ const [updating, setUpdating] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [pendingCount, setPendingCount] = useState(0);
+  const [pendingList, setPendingList] = useState("")
+  const [showPendingModal, setShowPendingModal] = useState(false)
 
   const companyName = "F SONKO UGANDA LTD"; // 🏢 Update to your company name
 
@@ -84,6 +98,114 @@ const [updating, setUpdating] = useState(false);
     };
     fetchData();
   }, []);
+
+  ////////////
+  useEffect(() => {
+  loadPending();
+}, []);
+
+const loadPending = async () => {
+  const list = await getPendingStock();
+  setPendingCount(list.length);
+  setPendingList(list);
+};
+////////////////
+const confirmPending = async (item) => {
+  try {
+   // console.log("⚡ START CONFIRM", item);
+
+    //setSaving(true);
+
+    // 1️⃣ LOAD PRODUCT
+    console.log("⏳ Loading product:", item.productId);
+    const productRef = doc(db, "products", item.productId);
+    const productSnap = await getDoc(productRef);
+
+    if (!productSnap.exists()) {
+      throw new Error("Product not found in Firestore → " + item.productId);
+    }
+
+    const product = productSnap.data();
+    console.log("📦 Current Product:", product);
+
+    const newQty = Number(product?.quantity ?? 0) + Number(item.quantity);
+
+    // 2️⃣ UPDATE STOCK
+    console.log("⬆ Updating stock to:", newQty);
+    await updateDoc(productRef, {
+      quantity: newQty,
+      price: Number(item.price),
+    });
+
+    // generate GRN from pending ID
+const grnNumber = "GRN-" + item.id.substring(0, 6).toUpperCase();
+
+// 2️⃣ Write inventory movement
+await addDoc(collection(db, "inventoryMovements"), {
+  productId: item.productId,
+  type: "in",
+  quantity: Number(item.quantity),
+  note: `Confirmed supply - ${grnNumber}`,
+  createdAt: serverTimestamp(),
+});
+
+// 3️⃣ Save delivery
+const deliveryRef = await addDoc(collection(db, "supplier_deliveries"), {
+  supplier: item.supplier,
+  items: [
+    {
+      productId: item.productId,
+      productName: item.productName,
+      quantity: Number(item.quantity),
+      price: Number(item.price),
+      total: Number(item.total),
+    },
+  ],
+  grandTotal: Number(item.total),
+  grnNumber,
+  createdAt: serverTimestamp(),
+});
+
+// 4️⃣ Save invoice
+//await addDoc(collection(db, "supplier_invoices"), {
+ // supplier: item.supplier,
+  //items: [
+ //   {
+    //  productId: item.productId,
+   //   name: item.productName,
+ //     quantity: Number(item.quantity),
+   //   price: Number(item.price),
+   //   total: Number(item.total),
+  /////  },
+ // ],
+ // amount: Number(item.total),
+ // status: "Paid",
+ // relatedGRN: grnNumber,
+ // deliveryId: deliveryRef.id,
+ // createdAt: serverTimestamp(),
+//});
+
+
+    // 6️⃣ DELETE PENDING
+    console.log("❌ Deleting pending");
+    await deletePendingStock(item.id);
+
+    alert("Stock confirmed successfully.");
+    loadPending();
+   // loadProducts();
+   // loadDeliveries();
+
+  } catch (err) {
+    console.error("🔥 ERROR CONFIRMING STOCK →", err.message, err);
+    alert("Error confirming stock: " + err.message);
+  } finally {
+    //setSaving(false);
+  }
+};
+
+
+
+
 
   // 🟡 Add supplier
   const handleAddSupplier = async () => {
@@ -139,6 +261,9 @@ const handlePayInvoice = async (invoiceId) => {
   }
 };
   //------
+
+  
+
 
   // 🟠 Add invoice (capture username)
   const handleAddInvoice = async () => {
@@ -428,6 +553,26 @@ const handlePayInvoice = async (invoiceId) => {
 
   return (
     <div className="container mt-4">
+      <div style={{ position: "relative", cursor: "pointer" }} onClick={() => setShowPendingModal(true)}>
+  <i className="bi bi-bell" style={{ fontSize: 28 }}></i>
+
+  {pendingCount > 0 && (
+    <span
+      style={{
+        background: "red",
+        color: "white",
+        borderRadius: "50%",
+        padding: "2px 7px",
+        fontSize: 12,
+        position: "absolute",
+        top: -4,
+        right: -4,
+      }}
+    >
+      {pendingCount}
+    </span>
+  )}
+</div>
       <h3 className="mb-4">Suppliers</h3>
       {error && <Alert variant="danger" onClose={() => setError("")} dismissible>{error}</Alert>}
 
@@ -437,6 +582,8 @@ const handlePayInvoice = async (invoiceId) => {
         </Button>
         
       </div>
+      
+
 
       {loading ? (
         <div className="text-center mt-3">
@@ -912,6 +1059,44 @@ const handlePayInvoice = async (invoiceId) => {
     </Button>
   </Modal.Footer>
 </Modal>
+<Modal show={showPendingModal} onHide={() => setShowPendingModal(false)} centered size="lg">
+  <Modal.Header closeButton>
+    <Modal.Title>Pending Stock Confirmation</Modal.Title>
+  </Modal.Header>
+  <Modal.Body>
+    {pendingList.length === 0 ? (
+      <p>No pending stock to confirm.</p>
+    ) : (
+      <Table bordered hover>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+            <th>Supplier</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {pendingList.map((p) => (
+            <tr key={p.id}>
+              <td>{p.productName}</td>
+              <td>{p.quantity}</td>
+              <td>{p.price}</td>
+              <td>{p.total}</td>
+              <td>{p.supplier}</td>
+              <td>
+                <Button size="sm" onClick={() => confirmPending(p)}>Confirm</Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    )}
+  </Modal.Body>
+</Modal>
+
 
     </div>
   );

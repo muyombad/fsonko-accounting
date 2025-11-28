@@ -13,6 +13,8 @@ import Invoices from "./pages/Invoices";
 import Inventory from "./pages/Inventory";
 import BankCash from "./pages/BankCash";
 import PrivateRoute from "./components/PrivateRoute";
+import Production from "./pages/Production";
+import ExportPage from "./pages/Export";
 import "./App.css";
 
 function App() {
@@ -30,6 +32,8 @@ function App() {
             <Route path="/ledgers" element={<PrivateRoute><Ledgers /></PrivateRoute>} />
             <Route path="/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
             <Route path="/inventory" element={<PrivateRoute><Inventory /></PrivateRoute>} />
+            <Route path="/production" element={<PrivateRoute><Production /></PrivateRoute>} />
+            <Route path="/exports" element={<PrivateRoute><ExportPage /></PrivateRoute>} />
             <Route path="/bankcash" element={<PrivateRoute><BankCash /></PrivateRoute>} />
             <Route path="/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
